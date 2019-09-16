@@ -65,10 +65,14 @@ int main(int _argc, char *_argv[])
 
     ros::Rate loop_rate(10);
 
+    ctr_kinematics.run();
+
+    /*
     while (ros::ok())
     {
         ros::spinOnce();
         loop_rate.sleep();
     }
+     */
     return 0;
 }

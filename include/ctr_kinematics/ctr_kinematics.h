@@ -21,6 +21,7 @@ public:
     CTRKinematics(ros::NodeHandle nh);
     ~CTRKinematics();
 
+    void run();
     void publishTipPose(geometry_msgs::Pose &pose);
     void jointStateCallback(const sensor_msgs::JointStateConstPtr &msg);
 

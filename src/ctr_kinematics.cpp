@@ -3,6 +3,7 @@
 //
 
 #include <ctr_kinematics/ctr_kinematics.h>
+#include <include/ctr_kinematics/section_i.h>
 
 CTRKinematics::CTRKinematics(ros::NodeHandle nh): nh_(nh){
     tip_pose_pub_ = nh_.advertise<geometry_msgs::Pose>("tip_pose", 10);
@@ -34,10 +35,42 @@ void CTRKinematics::jointStateCallback(const sensor_msgs::JointStateConstPtr &ms
     tip_pose.orientation.w = fk.getQuaternion().w();
 
     publishTipPose(tip_pose);
-
 }
 
 void CTRKinematics::publishTipPose(geometry_msgs::Pose &pose)
 {
     tip_pose_pub_.publish(pose);
+}
+
+void CTRKinematics::run()
+{
+
+    size_t c_NSection = c_robot_.getNSections();
+    size_t c_NTubes = c_robot_.getNTubes();
+    ROS_INFO("General Stats");
+    ROS_INFO_STREAM("Num sections: " << c_NSection);
+    ROS_INFO_STREAM("Num tubes: " << c_NTubes);
+
+    const ::CTR::types::SecVC<Real> *c_SecVC;
+    const ::CTR::types::SecCC<Real> *c_SecCC;
+    for(size_t iS(0);iS<c_NSection;iS++)
+    {
+        c_robot_.getSection(iS,&c_SecCC);
+        c_robot_.getSection(iS,&c_SecVC);
+        ERL_ASSERT( ((c_SecVC!=nullptr) || (c_SecCC!=nullptr)) );
+        if(c_SecCC!=nullptr)
+        {
+            ROS_INFO("Constant Curvature");
+            ROS_INFO_STREAM("section length: " << c_SecCC->getLength());
+            ROS_INFO_STREAM("n tube: " << c_SecCC->ntube);
+            ROS_INFO_STREAM("phi: " << c_SecCC->getPhi());
+        }
+        else
+        {
+            ROS_INFO("Variable Curvature");
+            ROS_INFO_STREAM("section length: " << c_SecVC->getLength());
+            ROS_INFO_STREAM("n tube: " << c_SecVC->ntube);
+            ROS_INFO_STREAM("n phi: " << c_SecVC->getPhi());
+        }
+    }
 }
