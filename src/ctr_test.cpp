@@ -26,36 +26,6 @@
 typedef double Real;
 typedef CTR::Robot<Real> Robot_t;
 
-// Forward kinematics subscribes to joint state and publishes a pose message (Point position, Quaternion orientation)
-void forwardKinematicsCallback(const sensor_msgs::JointStateConstPtr& msg)
-{
-    size_t      c_sample       = 256;
-    std::string c_xml_filename = "/home/keshav/catkin_ws/src/ctr_kinematics/ctr_resources/ctr_sec2_tub3.xml";
-    Robot_t c_robot = Robot_t(c_sample, c_xml_filename);
-    Robot_t::VectorJ c_joint_values(c_robot.getNJointValues(),1);
-    c_joint_values(0) = msg->position.at(0);
-    c_joint_values(1) = msg->position.at(1);
-    c_joint_values(2) = msg->position.at(2);
-    c_joint_values(3) = msg->position.at(3);
-    c_joint_values(4) = msg->position.at(4);
-    c_joint_values(5) = msg->position.at(5);
-
-    Erl::debug_cout_g()<<"Joint values: "<<c_joint_values.transpose()<<std::endl;
-    Robot_t::Transform fk = c_robot.calcKinematic(c_joint_values, c_sample);
-
-    geometry_msgs::Pose tip_pose;
-    tip_pose.position.x = fk.getX();
-    tip_pose.position.y = fk.getY();
-    tip_pose.position.z = fk.getZ();
-    tip_pose.orientation.x = fk.getQuaternion().x();
-    tip_pose.orientation.y = fk.getQuaternion().y();
-    tip_pose.orientation.z = fk.getQuaternion().z();
-    tip_pose.orientation.w = fk.getQuaternion().w();
-
-    ROS_INFO_STREAM("Tip pose, x: " << tip_pose.position.x << " y: " << tip_pose.position.y << " z: " << tip_pose.position.z);
-
-}
-
 int main(int _argc, char *_argv[])
 {
     ros::init(_argc, _argv, "ctr_kinematics_node");
@@ -65,14 +35,11 @@ int main(int _argc, char *_argv[])
 
     ros::Rate loop_rate(10);
 
-    ctr_kinematics.run();
-
-    /*
+    // every few seconds sample a new joint and publish
     while (ros::ok())
     {
         ros::spinOnce();
         loop_rate.sleep();
     }
-     */
     return 0;
 }

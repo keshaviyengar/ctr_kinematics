@@ -88,6 +88,8 @@ set(ADD_LIBS ${ADD_LIBS} "pthread")
 find_package(catkin REQUIRED COMPONENTS
   roscpp
   std_msgs
+  ctm2_visualization
+  tf
 )
 
 catkin_package(INCLUDE_DIRS include
