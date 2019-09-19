@@ -59,6 +59,12 @@ class TeleopAgent:
                     del_joints[5] = self.del_alpha
 
                 self.joint_states.position += del_joints
+                if key.char in ['w', 's']:
+                    self.joint_states.position[2] = self.joint_states.position[0]
+
+                if key.char in ['t', 'g']:
+                    self.joint_states.position[0] = self.joint_states.position[2]
+
                 self.joint_state_pub_.publish(self.joint_states)
 
         except AttributeError:
