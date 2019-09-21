@@ -90,6 +90,7 @@ find_package(catkin REQUIRED COMPONENTS
   std_msgs
   ctm2_visualization
   tf
+  tf_conversions
 )
 
 catkin_package(INCLUDE_DIRS include

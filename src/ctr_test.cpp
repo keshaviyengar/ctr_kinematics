@@ -38,6 +38,7 @@ int main(int _argc, char *_argv[])
     // every few seconds sample a new joint and publish
     while (ros::ok())
     {
+        ctr_kinematics.run();
         ros::spinOnce();
         loop_rate.sleep();
     }

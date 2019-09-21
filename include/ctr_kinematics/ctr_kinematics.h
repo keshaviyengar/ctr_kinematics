@@ -26,25 +26,35 @@ public:
 
     void publishConfiguration();
     void jointStateCallback(const sensor_msgs::JointStateConstPtr &msg);
+    void DesiredTipPoseCallback(const geometry_msgs::PoseConstPtr & msg);
+
+    void run();
 
     // Publish sampled joints for now
-    void publishASampledJoints(const ros::TimerEvent&);
-
+    void sampleJointSpace(Robot_t::VectorJ& joint_values, sensor_msgs::JointState& joint_state);
+    void publishASampledJointAndTipPose(const ros::TimerEvent&);
 
 private:
     ros::NodeHandle nh_;
     ros::Subscriber joint_sub_;
+    ros::Subscriber tip_pose_sub_;
     ros::Publisher tip_pose_pub_;
     ros::Publisher configuration_pub_;
 
     ros::Publisher sampled_joint_pub_;
-    ros::Timer new_joints_;
+    ros::Publisher sampled_desired_tip_pose_pub_;
+
+    // Timers for sampling for testing
+    ros::Timer new_sample_;
 
     size_t c_sample_;
     std::string c_xml_filename_;
     Robot_t c_robot_;
 
     CT_RNG c_rng_; CT_RND<Real> c_rnd_;
+
+    // Keep track of goals
+    Robot_t::Transform desired_tip_pose_;
 
 };
 
