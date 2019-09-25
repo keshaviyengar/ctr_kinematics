@@ -952,6 +952,7 @@ public:
             ::CTR::JacobianColumnFiniteDifference(_TTip,c_T_tip,c_FiniteDiff,_JacobianTip.col(idxJV).data());
             c_JVal[idxJV] = c_JValBackup;
         });
+        this->calcKinematic(c_JVal,_NSamples,c_ArcLengthStepRet);
 
         _JacobianTip.template bottomLeftCorner<3,1>() = m_InitTrafo.getColumn2();
         _JacobianTip.template topLeftCorner   <3,1>() = m_InitTrafo.getColumn2().cross(
