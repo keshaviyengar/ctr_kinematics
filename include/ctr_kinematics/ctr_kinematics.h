@@ -14,6 +14,7 @@
 #include <geometry_msgs/Pose.h>
 
 #include <ctm2_visualization/Visualizer.h>
+#include <geometry_msgs/PoseStamped.h>
 
 typedef double Real;
 typedef CTR::Robot<Real> Robot_t;
@@ -26,7 +27,7 @@ public:
 
     void publishConfiguration();
     void jointStateCallback(const sensor_msgs::JointStateConstPtr &msg);
-    void DesiredTipPoseCallback(const geometry_msgs::PoseConstPtr & msg);
+    void DesiredTipPoseCallback(const geometry_msgs::PoseStampedConstPtr &msg);
 
     void run();
 
@@ -39,10 +40,13 @@ private:
     ros::Subscriber joint_sub_;
     ros::Subscriber tip_pose_sub_;
     ros::Publisher tip_pose_pub_;
-    ros::Publisher configuration_pub_;
 
     ros::Publisher sampled_joint_pub_;
     ros::Publisher sampled_desired_tip_pose_pub_;
+    ros::Publisher desired_tip_pose_viz_pub_;
+    ros::Publisher current_tip_pose_viz_pub_;
+    ros::Publisher tip_pose_error_viz_pub_;
+    ros::Publisher tip_error_pub_;
 
     // Timers for sampling for testing
     ros::Timer new_sample_;
@@ -55,6 +59,8 @@ private:
 
     // Keep track of goals
     Robot_t::Transform desired_tip_pose_;
+    Robot_t::Transform current_tip_pose_;
+    Robot_t::VectorJ current_joints_;
 
 };
 

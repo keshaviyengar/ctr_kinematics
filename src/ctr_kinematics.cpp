@@ -8,29 +8,43 @@
 #include <algorithm>
 #include <tf_conversions/tf_eigen.h>
 
+#include <std_msgs/Float32.h>
+
 CTRKinematics::CTRKinematics(ros::NodeHandle nh): nh_(nh){
     c_sample_ = 256;
     c_xml_filename_ = "/home/keshav/catkin_ws/src/ctr_kinematics/ctr_resources/ctr_sec2_tub3.xml";
     c_robot_ = Robot_t(c_sample_, c_xml_filename_);
 
     tip_pose_pub_ = nh_.advertise<geometry_msgs::Pose>("tip_pose", 10);
-    configuration_pub_ = nh_.advertise<ctm2_visualization::Visualizer>("configuration_state", 10);
 
-    joint_sub_ = nh_.subscribe("joint_state", 10, &CTRKinematics::jointStateCallback, this);
+    //joint_sub_ = nh_.subscribe("joint_state", 10, &CTRKinematics::jointStateCallback, this);
     tip_pose_sub_ = nh_.subscribe("desired_tip_pose", 10, &CTRKinematics::DesiredTipPoseCallback, this);
 
-    sampled_joint_pub_ = nh_.advertise<sensor_msgs::JointState>("sampled_joint_state", 10);
-    sampled_desired_tip_pose_pub_ = nh_.advertise<geometry_msgs::Pose>("desired_tip_pose", 10);
+    //sampled_joint_pub_ = nh_.advertise<sensor_msgs::JointState>("sampled_joint_state", 10);
+    sampled_desired_tip_pose_pub_ = nh_.advertise<geometry_msgs::PoseStamped>("desired_tip_pose", 10);
+    desired_tip_pose_viz_pub_ = nh_.advertise<geometry_msgs::PoseStamped>("viz_desired_tip_pose", 10);
+    current_tip_pose_viz_pub_ = nh_.advertise<geometry_msgs::PoseStamped>("viz_current_tip_pose", 10);
+    tip_pose_error_viz_pub_ = nh_.advertise<geometry_msgs::PoseStamped>("viz_error_tip_pose", 10);
+    tip_error_pub_ = nh_.advertise<std_msgs::Float32>("tip_error", 10);
 
     // Sampling timers for testing
-    new_sample_ = nh_.createTimer(ros::Duration(5.0), &CTRKinematics::publishASampledJointAndTipPose, this);
+    new_sample_ = nh_.createTimer(ros::Duration(10.0), &CTRKinematics::publishASampledJointAndTipPose, this);
+
+    // Initialize joint values and desired tip pose
+    current_joints_.resize(c_robot_.getNJointValues(), 1);
+    c_robot_.getRandomJointValues(c_rng_, c_rnd_, current_joints_);
+
+    current_tip_pose_  = c_robot_.calcKinematic(current_joints_, c_sample_);
+
+    // Set first sampled desired pose to be the same as the achieved tip pose
+    desired_tip_pose_ = current_tip_pose_;
 }
 
 CTRKinematics::~CTRKinematics(){}
 
 void CTRKinematics::sampleJointSpace(Robot_t::VectorJ &joint_values, sensor_msgs::JointState &joint_state)
 {
-    c_robot_.getRandomJointValues(c_rng_,c_rnd_, joint_values);
+    c_robot_.getRandomJointValues(c_rng_, c_rnd_, joint_values);
 
     joint_state.position.resize(6);
     joint_state.position.at(0) = joint_values(0);
@@ -43,26 +57,18 @@ void CTRKinematics::sampleJointSpace(Robot_t::VectorJ &joint_values, sensor_msgs
 
 void CTRKinematics::publishASampledJointAndTipPose(const ros::TimerEvent&)
 {
+    // Publish a random tip pose
     Robot_t::VectorJ c_joint_values(c_robot_.getNJointValues(),1);
     sensor_msgs::JointState joint_state;
 
     sampleJointSpace(c_joint_values, joint_state);
 
-    // Publish the sampled joint state
-    sampled_joint_pub_.publish(joint_state);
+    desired_tip_pose_ = c_robot_.calcKinematic(c_joint_values, c_sample_);
+    desired_tip_pose_.getQuaternion().normalized();
 
-    Robot_t::Transform fk = c_robot_.calcKinematic(c_joint_values, c_sample_);
-    fk.getQuaternion().normalized();
-
-    geometry_msgs::Pose tip_pose;
-    tip_pose.position.x = fk.getX();
-    tip_pose.position.y = fk.getY();
-    tip_pose.position.z = fk.getZ();
-    tip_pose.orientation.x = fk.getQuaternion().normalized().x();
-    tip_pose.orientation.y = fk.getQuaternion().normalized().y();
-    tip_pose.orientation.z = fk.getQuaternion().normalized().z();
-    tip_pose.orientation.w = fk.getQuaternion().normalized().w();
-    sampled_desired_tip_pose_pub_.publish(tip_pose);
+    //Set a random joint state
+    sampleJointSpace(current_joints_, joint_state);
+    current_tip_pose_ = c_robot_.calcKinematic(current_joints_, c_sample_);
 }
 
 void CTRKinematics::jointStateCallback(const sensor_msgs::JointStateConstPtr &msg)
@@ -74,8 +80,6 @@ void CTRKinematics::jointStateCallback(const sensor_msgs::JointStateConstPtr &ms
     c_joint_values(3) = msg->position.at(3);
     c_joint_values(4) = fmin(fmax(0.0, msg->position.at(4)), 0.06647);
     c_joint_values(5) = msg->position.at(5);
-
-    ROS_INFO_STREAM("Joint values: " << c_joint_values);
 
     Robot_t::Transform fk = c_robot_.calcKinematic(c_joint_values, c_sample_);
     fk.getQuaternion().normalized();
@@ -94,54 +98,89 @@ void CTRKinematics::jointStateCallback(const sensor_msgs::JointStateConstPtr &ms
     publishConfiguration();
 }
 
-void CTRKinematics::DesiredTipPoseCallback(const geometry_msgs::PoseConstPtr &msg)
+void CTRKinematics::DesiredTipPoseCallback(const geometry_msgs::PoseStampedConstPtr &msg)
 {
     // TF pose to eigen transform
     tf::Pose desired_tip_pose;
-    tf::poseMsgToTF(*msg, desired_tip_pose);
+    tf::poseMsgToTF(msg->pose, desired_tip_pose);
     Eigen::Affine3d desired_tip_eigen;
     tf::poseTFToEigen(desired_tip_pose, desired_tip_eigen);
     Robot_t::Transform desired_tip_transform;
-    desired_tip_transform = Robot_t::Transform::fromEigenMatrix(desired_tip_eigen.matrix());
-
-    desired_tip_pose_ = desired_tip_transform;
-
-    Robot_t::MatJacobian j_tip(6,6);
-    Robot_t::RReal finite_diff_trans = 0.001;
-    Robot_t::RReal finite_diff_rot = 0.001;
-    c_robot_.calcJacobian(c_robot_.getJointValues(),desired_tip_transform, c_sample_, finite_diff_trans, finite_diff_rot, j_tip);
-    ROS_INFO_STREAM("Current joints: \n" << c_robot_.getJointValues());
-    Robot_t::Vector6 del_tip;
-    del_tip << desired_tip_transform.getX(), desired_tip_transform.getY(), desired_tip_transform.getZ(), 0, 0, 0;
-    ROS_INFO_STREAM("delta tip:\n" << del_tip);
-    ROS_INFO_STREAM("delta joints:\n" << j_tip.completeOrthogonalDecomposition().pseudoInverse() * del_tip);
+    desired_tip_pose_ = Robot_t::Transform::fromEigenMatrix(desired_tip_eigen.matrix());
 }
 
 void CTRKinematics::run()
 {
-    // check for current tip pose and desired tip pose
-    Robot_t::VectorJ current_q(c_robot_.getNJointValues(), 1);
-    current_q = c_robot_.getJointValues();
-    Robot_t::Transform current_tip_pose = c_robot_.calcKinematic(current_q, c_sample_);
-
-    // compute delta tip pose
-    Robot_t::Transform delta_tip_pose = desired_tip_pose_.inv() * current_tip_pose;
+    current_tip_pose_ = c_robot_.calcKinematic(current_joints_, c_sample_);
+    Robot_t::Transform delta_tip_pose = current_tip_pose_.inv() * desired_tip_pose_;
+    // multiply jacobian and delta tip pose to get delta joints
+    Robot_t::Vector6 delta_tip_vector; delta_tip_vector.setZero();
+    delta_tip_vector[0] = delta_tip_pose.getTranslation().x();
+    delta_tip_vector[1] = delta_tip_pose.getTranslation().y();
+    delta_tip_vector[2] = delta_tip_pose.getTranslation().z();
+    std_msgs::Float32 tip_error;
+    tip_error.data = delta_tip_pose.getTranslation().norm();
+    tip_error_pub_.publish(tip_error);
 
     // compute the jacobian
-    Robot_t::MatJacobian j_tip(6,6);
-    c_robot_.calcJacobian(current_q, desired_tip_pose_, c_sample_, 0.001, 0.001, j_tip);
+    double trans_diff = 0.001;
+    double rot_diff = 0.0001;
+    Robot_t::MatJacobian j_tip(6, 6);
 
-    // multiply jacobian and delta tip pose to get delta joints
-    Robot_t::VectorJ delta_tip_vector;
-    delta_tip_vector << delta_tip_pose.getX(), delta_tip_pose.getY(), delta_tip_pose.getZ(), 0, 0, 0;
+    c_robot_.calcJacobian(current_joints_, 1, trans_diff, rot_diff, j_tip);
+
     Robot_t::VectorJ delta_q;
-    delta_q = j_tip.completeOrthogonalDecomposition().pseudoInverse() * delta_tip_vector;
+
+    // transpose method
+    // double alpha = 0.01;
+    // delta_q = alpha * j_tip.transpose() * delta_tip_vector;
+
+    // psuedo inverse
+    // delta_q = j_tip.completeOrthogonalDecomposition().pseudoInverse() * delta_tip_vector;
+
+    // dls method
+    double lambda = 0.1;
+    Robot_t::MatJacobian j_damped(6,6);
+    j_damped = j_tip * j_tip.transpose() + pow(lambda, 2) * Robot_t::MatJacobian::Identity(6,6);
+    delta_q = j_tip.transpose() * j_damped.inverse() * (delta_tip_vector);
+
+    // Limit velocity
+    double ang_vel_limit = 0.01 / 2;
+    double ext_vel_limit = 0.01 / 2;
+    delta_q(0) = fmin(fmax(-ang_vel_limit, delta_q(0)), ang_vel_limit);
+    delta_q(1) = fmin(fmax(-ext_vel_limit, delta_q(1)), ext_vel_limit);
+    delta_q(2) = fmin(fmax(-ang_vel_limit, delta_q(2)), ang_vel_limit);
+    delta_q(3) = fmin(fmax(-ang_vel_limit, delta_q(3)), ang_vel_limit);
+    delta_q(4) = fmin(fmax(-ext_vel_limit, delta_q(4)), ext_vel_limit);
+    delta_q(5) = fmin(fmax(-ang_vel_limit, delta_q(5)), ang_vel_limit);
+
+    ROS_INFO_STREAM("delta q:\n" << delta_q);
 
     // set current q to current q + delta q
-    current_q = current_q + delta_q;
+    current_joints_+= delta_q;
+
+    // Limit joints
+    current_joints_(1) = fmin(fmax(0.0, current_joints_(1)), 0.06647);
+    current_joints_(4) = fmin(fmax(0.0, current_joints_(4)), 0.06647);
+
+    current_tip_pose_ = c_robot_.calcKinematic(current_joints_, c_sample_);
 
     // Publish new joints
-    ROS_INFO_STREAM("New joints: " << current_q);
+    publishConfiguration();
+
+    // Publish delta tip pose
+    geometry_msgs::PoseStamped tip_pose;
+    tip_pose.header.stamp = ros::Time::now();
+    tip_pose.header.frame_id = "255";
+    tip_pose.pose.position.x = delta_tip_pose.getX() * 100;
+    tip_pose.pose.position.y = delta_tip_pose.getY() * 100;
+    tip_pose.pose.position.z = delta_tip_pose.getZ() * 100;
+    tip_pose.pose.orientation.x = delta_tip_pose.getQuaternion().normalized().x();
+    tip_pose.pose.orientation.y = delta_tip_pose.getQuaternion().normalized().y();
+    tip_pose.pose.orientation.z = delta_tip_pose.getQuaternion().normalized().z();
+    tip_pose.pose.orientation.w = delta_tip_pose.getQuaternion().normalized().w();
+    tip_pose_error_viz_pub_.publish(tip_pose);
+
 }
 
 // Possibly use this for updating joints with a run function in main for iterative solving
@@ -166,6 +205,30 @@ void CTRKinematics::publishConfiguration()
         rotation.normalize();
         transform.setRotation(rotation);
 
-        br.sendTransform(tf::StampedTransform(transform,ros::Time::now(), "world",std::to_string(iSp)));
+        br.sendTransform(tf::StampedTransform(transform,ros::Time::now(), "world", std::to_string(iSp)));
     }
+    // Publish desired pose
+    geometry_msgs::PoseStamped tip_pose;
+    tip_pose.header.stamp = ros::Time::now();
+    tip_pose.header.frame_id = "world";
+    tip_pose.pose.position.x = desired_tip_pose_.getX() * 100;
+    tip_pose.pose.position.y = desired_tip_pose_.getY() * 100;
+    tip_pose.pose.position.z = desired_tip_pose_.getZ() * 100;
+    tip_pose.pose.orientation.x = desired_tip_pose_.getQuaternion().normalized().x();
+    tip_pose.pose.orientation.y = desired_tip_pose_.getQuaternion().normalized().y();
+    tip_pose.pose.orientation.z = desired_tip_pose_.getQuaternion().normalized().z();
+    tip_pose.pose.orientation.w = desired_tip_pose_.getQuaternion().normalized().w();
+    desired_tip_pose_viz_pub_.publish(tip_pose);
+
+    // Publish current pose
+    tip_pose.header.stamp = ros::Time::now();
+    tip_pose.header.frame_id = "world";
+    tip_pose.pose.position.x = current_tip_pose_.getX() * 100;
+    tip_pose.pose.position.y = current_tip_pose_.getY() * 100;
+    tip_pose.pose.position.z = current_tip_pose_.getZ() * 100;
+    tip_pose.pose.orientation.x = current_tip_pose_.getQuaternion().normalized().x();
+    tip_pose.pose.orientation.y = current_tip_pose_.getQuaternion().normalized().y();
+    tip_pose.pose.orientation.z = current_tip_pose_.getQuaternion().normalized().z();
+    tip_pose.pose.orientation.w = current_tip_pose_.getQuaternion().normalized().w();
+    current_tip_pose_viz_pub_.publish(tip_pose);
 }
