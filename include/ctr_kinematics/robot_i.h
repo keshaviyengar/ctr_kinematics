@@ -1061,7 +1061,9 @@ public:
                 c_JVal[idxJV] = c_JValBackup;
             });
 
-            _JacobianTip.template bottomLeftCorner<3,1>() = m_InitTrafo.getColumn2();
+            c_T_tip = this->calcKinematic(c_JVal,_NSamples,c_ArcLengthStepRet);
+
+        _JacobianTip.template bottomLeftCorner<3,1>() = m_InitTrafo.getColumn2();
             _JacobianTip.template topLeftCorner   <3,1>() = m_InitTrafo.getColumn2().cross(
                                                                    _TTip.getTranslationReference()
                                                             -m_InitTrafo.getTranslationReference() ) ;
