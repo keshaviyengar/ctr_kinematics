@@ -57,14 +57,19 @@ void CTRKinematics::sampleJointSpace(Robot_t::VectorJ &joint_values, sensor_msgs
 
 void CTRKinematics::publishASampledJointAndTipPose(const ros::TimerEvent&)
 {
-    // Publish a random tip pose
+    // Set desired tip pose to  a random tip pose
+    //Robot_t::VectorJ c_joint_values(c_robot_.getNJointValues(),1);
+    //sensor_msgs::JointState joint_state;
+
+    //sampleJointSpace(c_joint_values, joint_state);
+
+    //desired_tip_pose_ = c_robot_.calcKinematic(c_joint_values, c_sample_);
+    //desired_tip_pose_.getQuaternion().normalized();
+
+    // Set desired tip pose to be a delta of current tip pose
     Robot_t::VectorJ c_joint_values(c_robot_.getNJointValues(),1);
-    sensor_msgs::JointState joint_state;
-
-    sampleJointSpace(c_joint_values, joint_state);
-
+    c_joint_values = c_robot_.getJointValues();
     desired_tip_pose_ = c_robot_.calcKinematic(c_joint_values, c_sample_);
-    desired_tip_pose_.getQuaternion().normalized();
 
     //Set a random joint state
     sampleJointSpace(current_joints_, joint_state);
@@ -111,10 +116,14 @@ void CTRKinematics::DesiredTipPoseCallback(const geometry_msgs::PoseStampedConst
 
 void CTRKinematics::run()
 {
-    current_tip_pose_ = c_robot_.calcKinematic(current_joints_, c_sample_);
+    Real step_return;
+    current_tip_pose_ = c_robot_.calcKinematic(current_joints_, c_sample_, step_return);
     Robot_t::Transform delta_tip_pose = current_tip_pose_.inv() * desired_tip_pose_;
     // multiply jacobian and delta tip pose to get delta joints
-    Robot_t::Vector6 delta_tip_vector; delta_tip_vector.setZero();
+    Robot_t::Vector6 delta_tip_vector;
+    //delta_tip_vector = delta_tip_pose.getVector6_Euler(Erl::Axis::Z, Erl::Axis::Y, Erl::Axis::X);
+
+    delta_tip_vector.setZero();
     delta_tip_vector[0] = delta_tip_pose.getTranslation().x();
     delta_tip_vector[1] = delta_tip_pose.getTranslation().y();
     delta_tip_vector[2] = delta_tip_pose.getTranslation().z();
@@ -123,29 +132,33 @@ void CTRKinematics::run()
     tip_error_pub_.publish(tip_error);
 
     // compute the jacobian
-    double trans_diff = 0.001;
+    double trans_diff = 0.06647 / 1000;
     double rot_diff = 0.0001;
     Robot_t::MatJacobian j_tip(6, 6);
 
-    c_robot_.calcJacobian(current_joints_, 1, trans_diff, rot_diff, j_tip);
+    //c_robot_.calcJacobian(current_joints_, 1, trans_diff, rot_diff, j_tip);
+    Robot_t::VectorJ test = c_robot_.getJointValues();
+    c_robot_.calcJacobian(current_joints_, step_return, trans_diff, rot_diff, j_tip);
+    Robot_t::VectorJ test2 = c_robot_.getJointValues();
+    if ((test2 - test).norm() != 0)
+    {
+        ROS_INFO_STREAM("change in joint val in jacobian calculation");
+    }
 
     Robot_t::VectorJ delta_q;
 
     // transpose method
-    // double alpha = 0.01;
-    // delta_q = alpha * j_tip.transpose() * delta_tip_vector;
-
-    // psuedo inverse
-    // delta_q = j_tip.completeOrthogonalDecomposition().pseudoInverse() * delta_tip_vector;
+    double alpha = 0.01;
+    delta_q = alpha * j_tip.transpose() * delta_tip_vector;
 
     // dls method
-    double lambda = 0.1;
-    Robot_t::MatJacobian j_damped(6,6);
-    j_damped = j_tip * j_tip.transpose() + pow(lambda, 2) * Robot_t::MatJacobian::Identity(6,6);
-    delta_q = j_tip.transpose() * j_damped.inverse() * (delta_tip_vector);
+    // double lambda = 0.00;
+    // Robot_t::MatJacobian j_damped(6,6);
+    // j_damped = j_tip * j_tip.transpose() + pow(lambda, 2) * Robot_t::MatJacobian::Identity(6,6);
+    // delta_q = j_tip.transpose() * j_damped.inverse() * (delta_tip_vector);
 
     // Limit velocity
-    double ang_vel_limit = 0.01 / 2;
+    double ang_vel_limit = 1.0 / 2;
     double ext_vel_limit = 0.01 / 2;
     delta_q(0) = fmin(fmax(-ang_vel_limit, delta_q(0)), ang_vel_limit);
     delta_q(1) = fmin(fmax(-ext_vel_limit, delta_q(1)), ext_vel_limit);
@@ -153,8 +166,6 @@ void CTRKinematics::run()
     delta_q(3) = fmin(fmax(-ang_vel_limit, delta_q(3)), ang_vel_limit);
     delta_q(4) = fmin(fmax(-ext_vel_limit, delta_q(4)), ext_vel_limit);
     delta_q(5) = fmin(fmax(-ang_vel_limit, delta_q(5)), ang_vel_limit);
-
-    ROS_INFO_STREAM("delta q:\n" << delta_q);
 
     // set current q to current q + delta q
     current_joints_+= delta_q;
@@ -167,20 +178,6 @@ void CTRKinematics::run()
 
     // Publish new joints
     publishConfiguration();
-
-    // Publish delta tip pose
-    geometry_msgs::PoseStamped tip_pose;
-    tip_pose.header.stamp = ros::Time::now();
-    tip_pose.header.frame_id = "255";
-    tip_pose.pose.position.x = delta_tip_pose.getX() * 100;
-    tip_pose.pose.position.y = delta_tip_pose.getY() * 100;
-    tip_pose.pose.position.z = delta_tip_pose.getZ() * 100;
-    tip_pose.pose.orientation.x = delta_tip_pose.getQuaternion().normalized().x();
-    tip_pose.pose.orientation.y = delta_tip_pose.getQuaternion().normalized().y();
-    tip_pose.pose.orientation.z = delta_tip_pose.getQuaternion().normalized().z();
-    tip_pose.pose.orientation.w = delta_tip_pose.getQuaternion().normalized().w();
-    tip_pose_error_viz_pub_.publish(tip_pose);
-
 }
 
 // Possibly use this for updating joints with a run function in main for iterative solving
@@ -231,4 +228,17 @@ void CTRKinematics::publishConfiguration()
     tip_pose.pose.orientation.z = current_tip_pose_.getQuaternion().normalized().z();
     tip_pose.pose.orientation.w = current_tip_pose_.getQuaternion().normalized().w();
     current_tip_pose_viz_pub_.publish(tip_pose);
+
+    // Publish delta pose
+    Robot_t::Transform delta_tip_pose = current_tip_pose_.inv() * desired_tip_pose_;
+    tip_pose.header.stamp = ros::Time::now();
+    tip_pose.header.frame_id = "255";
+    tip_pose.pose.position.x = delta_tip_pose.getX() * 100;
+    tip_pose.pose.position.y = delta_tip_pose.getY() * 100;
+    tip_pose.pose.position.z = delta_tip_pose.getZ() * 100;
+    tip_pose.pose.orientation.x = delta_tip_pose.getQuaternion().normalized().x();
+    tip_pose.pose.orientation.y = delta_tip_pose.getQuaternion().normalized().y();
+    tip_pose.pose.orientation.z = delta_tip_pose.getQuaternion().normalized().z();
+    tip_pose.pose.orientation.w = delta_tip_pose.getQuaternion().normalized().w();
+    tip_pose_error_viz_pub_.publish(tip_pose);
 }

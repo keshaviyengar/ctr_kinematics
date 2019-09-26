@@ -1,0 +1,4 @@
+<launch>
+    <node name="kinematics" pkg="ctr_kinematics" type="ctr_test"/>
+    <node type="rviz" name="rviz" pkg="rviz" args="-d $(find ctr_kinematics)/ctr.rviz" />
+</launch>
