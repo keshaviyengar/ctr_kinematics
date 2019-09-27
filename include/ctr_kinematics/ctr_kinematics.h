@@ -46,7 +46,9 @@ private:
     ros::Publisher desired_tip_pose_viz_pub_;
     ros::Publisher current_tip_pose_viz_pub_;
     ros::Publisher tip_pose_error_viz_pub_;
+
     ros::Publisher tip_error_pub_;
+    ros::Publisher joint_error_pub_;
 
     // Timers for sampling for testing
     ros::Timer new_sample_;
@@ -61,6 +63,7 @@ private:
     Robot_t::Transform desired_tip_pose_;
     Robot_t::Transform current_tip_pose_;
     Robot_t::VectorJ current_joints_;
+    Robot_t::VectorJ desired_joints_;
 
 };
 

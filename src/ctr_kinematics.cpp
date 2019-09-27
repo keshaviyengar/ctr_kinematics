@@ -25,14 +25,18 @@ CTRKinematics::CTRKinematics(ros::NodeHandle nh): nh_(nh){
     desired_tip_pose_viz_pub_ = nh_.advertise<geometry_msgs::PoseStamped>("viz_desired_tip_pose", 10);
     current_tip_pose_viz_pub_ = nh_.advertise<geometry_msgs::PoseStamped>("viz_current_tip_pose", 10);
     tip_pose_error_viz_pub_ = nh_.advertise<geometry_msgs::PoseStamped>("viz_error_tip_pose", 10);
+
     tip_error_pub_ = nh_.advertise<std_msgs::Float32>("tip_error", 10);
+    joint_error_pub_ = nh_.advertise<std_msgs::Float32>("joint_error", 10);
 
     // Sampling timers for testing
     new_sample_ = nh_.createTimer(ros::Duration(10.0), &CTRKinematics::publishASampledJointAndTipPose, this);
 
     // Initialize joint values and desired tip pose
     current_joints_.resize(c_robot_.getNJointValues(), 1);
+    desired_joints_.resize(c_robot_.getNJointValues(), 1);
     c_robot_.getRandomJointValues(c_rng_, c_rnd_, current_joints_);
+    desired_joints_ = current_joints_;
 
     current_tip_pose_  = c_robot_.calcKinematic(current_joints_, c_sample_);
 
@@ -57,19 +61,15 @@ void CTRKinematics::sampleJointSpace(Robot_t::VectorJ &joint_values, sensor_msgs
 
 void CTRKinematics::publishASampledJointAndTipPose(const ros::TimerEvent&)
 {
-    // Set desired tip pose to  a random tip pose
-    //Robot_t::VectorJ c_joint_values(c_robot_.getNJointValues(),1);
-    //sensor_msgs::JointState joint_state;
-
-    //sampleJointSpace(c_joint_values, joint_state);
-
-    //desired_tip_pose_ = c_robot_.calcKinematic(c_joint_values, c_sample_);
-    //desired_tip_pose_.getQuaternion().normalized();
-
-    // Set desired tip pose to be a delta of current tip pose
+    // Set desired tip pose to a random tip pose
     Robot_t::VectorJ c_joint_values(c_robot_.getNJointValues(),1);
-    c_joint_values = c_robot_.getJointValues();
+    sensor_msgs::JointState joint_state;
+
+    sampleJointSpace(c_joint_values, joint_state);
+
     desired_tip_pose_ = c_robot_.calcKinematic(c_joint_values, c_sample_);
+    desired_tip_pose_.getQuaternion().normalized();
+    desired_joints_ = c_joint_values;
 
     //Set a random joint state
     sampleJointSpace(current_joints_, joint_state);
@@ -131,6 +131,10 @@ void CTRKinematics::run()
     tip_error.data = delta_tip_pose.getTranslation().norm();
     tip_error_pub_.publish(tip_error);
 
+    std_msgs::Float32 joint_error;
+    tip_error.data = (desired_joints_ - current_joints_).norm();
+    joint_error_pub_.publish(tip_error);
+
     // compute the jacobian
     double trans_diff = 0.06647 / 1000;
     double rot_diff = 0.0001;
@@ -148,7 +152,7 @@ void CTRKinematics::run()
     Robot_t::VectorJ delta_q;
 
     // transpose method
-    double alpha = 0.01;
+    double alpha = 0.1;
     delta_q = alpha * j_tip.transpose() * delta_tip_vector;
 
     // dls method
@@ -158,8 +162,8 @@ void CTRKinematics::run()
     // delta_q = j_tip.transpose() * j_damped.inverse() * (delta_tip_vector);
 
     // Limit velocity
-    double ang_vel_limit = 1.0 / 2;
-    double ext_vel_limit = 0.01 / 2;
+    double ang_vel_limit = 0.5 / 2;
+    double ext_vel_limit = 0.001 / 2;
     delta_q(0) = fmin(fmax(-ang_vel_limit, delta_q(0)), ang_vel_limit);
     delta_q(1) = fmin(fmax(-ext_vel_limit, delta_q(1)), ext_vel_limit);
     delta_q(2) = fmin(fmax(-ang_vel_limit, delta_q(2)), ang_vel_limit);
