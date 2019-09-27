@@ -45,7 +45,7 @@ private:
     ros::Publisher sampled_desired_tip_pose_pub_;
     ros::Publisher desired_tip_pose_viz_pub_;
     ros::Publisher current_tip_pose_viz_pub_;
-    ros::Publisher tip_pose_error_viz_pub_;
+    ros::Publisher tip_pose_estimate_viz_pub_;
 
     ros::Publisher tip_error_pub_;
     ros::Publisher joint_error_pub_;
@@ -64,6 +64,7 @@ private:
     Robot_t::Transform current_tip_pose_;
     Robot_t::VectorJ current_joints_;
     Robot_t::VectorJ desired_joints_;
+    Robot_t::Vector6 jacobian_tip_estimate_;
 
 };
 
