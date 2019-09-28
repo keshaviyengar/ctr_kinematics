@@ -59,6 +59,8 @@ private:
 
     CT_RNG c_rng_; CT_RND<Real> c_rnd_;
 
+    Robot_t::VectorJ dof_index_;
+
     // Keep track of goals
     Robot_t::Transform desired_tip_pose_;
     Robot_t::Transform current_tip_pose_;

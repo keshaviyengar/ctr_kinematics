@@ -39,6 +39,14 @@ CTRKinematics::CTRKinematics(ros::NodeHandle nh): nh_(nh){
     c_robot_.getRandomJointValues(c_rng_, c_rnd_, current_joints_);
     desired_joints_ = current_joints_;
 
+    dof_index_.resize(c_robot_.getNJointValues(), 1);
+    dof_index_[0] = 0; // rigid outer tube base angle
+    dof_index_[1] = 1; // extension tube 1 = extension tube 2
+    dof_index_[2] = 0; // tube 1 base angle
+    dof_index_[3] = 0; // tube 2 base angle
+    dof_index_[4] = 0; // tube 3 extension
+    dof_index_[5] = 0; // tube 3 rotation
+
     current_tip_pose_  = c_robot_.calcKinematic(current_joints_, c_sample_);
 
     // Set first sampled desired pose to be the same as the achieved tip pose, to see how an error of zero looks like
@@ -51,6 +59,8 @@ CTRKinematics::~CTRKinematics(){}
 void CTRKinematics::sampleJointSpace(Robot_t::VectorJ &joint_values, sensor_msgs::JointState &joint_state)
 {
     c_robot_.getRandomJointValues(c_rng_, c_rnd_, joint_values);
+
+    joint_values = joint_values.cwiseProduct(dof_index_);
 
     joint_state.position.resize(6);
     joint_state.position.at(0) = joint_values(0);
@@ -174,6 +184,8 @@ void CTRKinematics::run()
     delta_q(3) = fmin(fmax(-ang_vel_limit, delta_q(3)), ang_vel_limit);
     delta_q(4) = fmin(fmax(-ext_vel_limit, delta_q(4)), ext_vel_limit);
     delta_q(5) = fmin(fmax(-ang_vel_limit, delta_q(5)), ang_vel_limit);
+
+    delta_q = delta_q.cwiseProduct(dof_index_);
 
     // set current q to current q + delta q
     current_joints_+= delta_q;

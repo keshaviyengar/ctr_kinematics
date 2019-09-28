@@ -917,49 +917,6 @@ public:
     CTR_INLINE virtual void   calcJacobian(const VectorJ& _JVal, const Transform& _TTip, const size_t& _NSamples,
                                            const Real& _FiniteDiff_Trans, const Real& _FiniteDiff_Rot, MatJacobian& _JacobianTip) noexcept
     {
-        /**/
-        Real c_ArcLengthStepRet;
-        //c_T0 = calcKinematic(_JVal,m_Samples,c_ArcLengthStepRet);
-        Transform c_T_tip;
-        VectorJs  c_JVal = _JVal;
-        Real      c_JValBackup ;
-        Real      c_FiniteDiff ;
-
-         _JacobianTip.col(2).setZero();
-        Erl::static_for<1,n_tubes>()([&](auto&& i_ic)
-        {
-            constexpr auto idxTube = std::decay<decltype(i_ic)>::type::value;
-            constexpr auto idxJV   = ::CTR::JointValue_ALPHA<tuple_type,idxTube>::ijv;
-
-            c_JValBackup =  _JVal[idxJV];
-            c_JVal[idxJV] = c_JValBackup+_FiniteDiff_Rot;
-            c_T_tip = this->calcKinematic(c_JVal,_NSamples,c_ArcLengthStepRet);
-            ::CTR::JacobianColumnFiniteDifference(_TTip,c_T_tip,_FiniteDiff_Rot,_JacobianTip.col(idxJV).data());
-            c_JVal[idxJV] = c_JValBackup;
-        });
-
-        Erl::static_for<0,n_sections>()([&](auto&& i_ic)
-        {
-            constexpr auto idxSect = std::decay<decltype(i_ic)>::type::value;
-            constexpr auto idxJV   = ::CTR::JointValue_PHI<tuple_type,idxSect>::ijv;
-
-            c_JValBackup =  _JVal[idxJV];
-            c_JVal[idxJV] = c_JValBackup+_FiniteDiff_Trans;
-            if(c_JVal[idxJV] >= std::get<idxSect>(m_Sections).getLength())
-            { c_JVal[idxJV] = c_JValBackup-_FiniteDiff_Trans; c_FiniteDiff = -_FiniteDiff_Trans; }
-            else{ c_FiniteDiff = _FiniteDiff_Trans; }
-            c_T_tip = this->calcKinematic(c_JVal,_NSamples,c_ArcLengthStepRet);
-            ::CTR::JacobianColumnFiniteDifference(_TTip,c_T_tip,c_FiniteDiff,_JacobianTip.col(idxJV).data());
-            c_JVal[idxJV] = c_JValBackup;
-        });
-        this->calcKinematic(c_JVal,_NSamples,c_ArcLengthStepRet);
-
-        _JacobianTip.template bottomLeftCorner<3,1>() = m_InitTrafo.getColumn2();
-        _JacobianTip.template topLeftCorner   <3,1>() = m_InitTrafo.getColumn2().cross(
-                                                                  _TTip.getTranslationReference()
-                                                           -m_InitTrafo.getTranslationReference() );
-         /**/
-        /*
         Real c_ArcLengthStepRet;
 
         Transform c_T_lo,c_T_hi;
@@ -1009,7 +966,6 @@ public:
 
         _JacobianTip.template bottomLeftCorner<3,1>() = m_InitTrafo.getColumn2();
         _JacobianTip.template topLeftCorner<3,1>() = m_InitTrafo.getColumn2().cross(_TTip.getTranslationReference()-m_InitTrafo.getTranslationReference()) ;
-        */
 
     }
     CTR_INLINE virtual void   calcJacobian(const VectorJ& _JVal, const Transform& _TTip, const Transform& _TiSample, const size_t& _NSamples,
