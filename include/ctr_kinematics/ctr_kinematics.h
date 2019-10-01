@@ -35,6 +35,9 @@ public:
     void sampleJointSpace(Robot_t::VectorJ& joint_values, sensor_msgs::JointState& joint_state);
     void publishASampledJointAndTipPose(const ros::TimerEvent&);
 
+    geometry_msgs::PoseStamped TransformToPoseStamped(Robot_t::Transform &transform);
+    geometry_msgs::PoseStamped VectorToPoseStamped(Robot_t::Vector6 &vector);
+
 private:
     ros::NodeHandle nh_;
     ros::Subscriber joint_sub_;
@@ -66,7 +69,7 @@ private:
     Robot_t::Transform current_tip_pose_;
     Robot_t::VectorJ current_joints_;
     Robot_t::VectorJ desired_joints_;
-    Robot_t::Vector6 jacobian_tip_estimate_;
+    Robot_t::Transform jacobian_tip_estimate_;
 
 };
 
