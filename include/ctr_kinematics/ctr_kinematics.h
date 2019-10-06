@@ -34,9 +34,9 @@ public:
     // Publish sampled joints for now
     void sampleJointSpace(Robot_t::VectorJ& joint_values, sensor_msgs::JointState& joint_state);
     void publishASampledJointAndTipPose(const ros::TimerEvent&);
+    void publishCurrentJointAndDeltaTipPose(const ros::TimerEvent&);
 
     geometry_msgs::PoseStamped TransformToPoseStamped(Robot_t::Transform &transform);
-    geometry_msgs::PoseStamped VectorToPoseStamped(Robot_t::Vector6 &vector);
 
 private:
     ros::NodeHandle nh_;
@@ -61,16 +61,24 @@ private:
     Robot_t c_robot_;
 
     CT_RNG c_rng_; CT_RND<Real> c_rnd_;
+    std::default_random_engine re_;
 
     Robot_t::VectorJ dof_index_;
+    Robot_t::VectorJ constant_joint_values_;
+
+    Robot_t::VectorJ joint_limits_high_;
+    Robot_t::VectorJ joint_limits_low_;
+
+    double trans_diff_ = 0.06647 / 100; // perturbation in translation joints
+    double rot_diff_ = 2.0 * M_PI / 180.0; // perturbation in rotation joint
 
     // Keep track of goals
     Robot_t::Transform desired_tip_pose_;
     Robot_t::Transform current_tip_pose_;
     Robot_t::VectorJ current_joints_;
+    Robot_t::VectorJ jacobian_tip_estimate_current_joints_;
     Robot_t::VectorJ desired_joints_;
     Robot_t::Transform jacobian_tip_estimate_;
-
 };
 
 
