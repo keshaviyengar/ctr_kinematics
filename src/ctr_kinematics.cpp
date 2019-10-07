@@ -9,8 +9,10 @@
 #include <tf_conversions/tf_eigen.h>
 
 #include <std_msgs/Float32.h>
+#include <angles/angles.h>
 
 #include <random>
+#include <cfloat>
 
 CTRKinematics::CTRKinematics(ros::NodeHandle nh): nh_(nh){
     c_sample_ = 256;
@@ -33,8 +35,8 @@ CTRKinematics::CTRKinematics(ros::NodeHandle nh): nh_(nh){
     joint_error_pub_ = nh_.advertise<std_msgs::Float32>("joint_error", 10);
 
     // Sampling timers for testing
-    //new_sample_ = nh_.createTimer(ros::Duration(10.0), &CTRKinematics::publishASampledJointAndTipPose, this);
-    new_sample_ = nh_.createTimer(ros::Duration(2.0), &CTRKinematics::publishCurrentJointAndDeltaTipPose, this);
+    new_sample_ = nh_.createTimer(ros::Duration(10.0), &CTRKinematics::publishASampledJointAndTipPose, this);
+    //new_sample_ = nh_.createTimer(ros::Duration(10.0), &CTRKinematics::publishCurrentJointAndDeltaTipPose, this);
 
     // Initialize joint values and desired tip pose
     current_joints_.resize(c_robot_.getNJointValues(), 1);
@@ -45,11 +47,11 @@ CTRKinematics::CTRKinematics(ros::NodeHandle nh): nh_(nh){
 
     // Reduce the degrees of freedom
     dof_index_.resize(c_robot_.getNJointValues(), 1);
-    dof_index_[0] = 0; // rigid outer tube base angle
+    dof_index_[0] = 1; // rigid outer tube base angle
     dof_index_[1] = 1; // extension tube 1 = extension tube 2
     dof_index_[2] = 0; // tube 1 base angle
     dof_index_[3] = 0; // tube 2 base angle
-    dof_index_[4] = 1; // tube 3 extension
+    dof_index_[4] = 0; // tube 3 extension
     dof_index_[5] = 0; // tube 3 rotation
 
     // Add constant joint values even if dof is off
@@ -60,27 +62,6 @@ CTRKinematics::CTRKinematics(ros::NodeHandle nh): nh_(nh){
     constant_joint_values_[3] = 0; // tube 2 base angle
     constant_joint_values_[4] = 0; // tube 3 extension
     constant_joint_values_[5] = 0; // tube 3 rotation
-
-    // Set joint limits
-    double rotation_low = -2 * M_PI;
-    double extension_low = trans_diff_;
-    joint_limits_low_.resize(c_robot_.getNJointValues(), 1);
-    joint_limits_low_[0] = rotation_low * dof_index_[0] + constant_joint_values_[0];
-    joint_limits_low_[1] = extension_low * dof_index_[1] + constant_joint_values_[1];
-    joint_limits_low_[2] = rotation_low * dof_index_[2] + constant_joint_values_[2];
-    joint_limits_low_[3] = rotation_low * dof_index_[3] + constant_joint_values_[3];
-    joint_limits_low_[4] = extension_low * dof_index_[4] + constant_joint_values_[4];
-    joint_limits_low_[5] = rotation_low * dof_index_[5] + constant_joint_values_[5];
-
-    double rotation_high = 2 * M_PI;
-    double extension_high = c_robot_.getMaxLength() * 0.75;
-    joint_limits_high_.resize(c_robot_.getNJointValues(), 1);
-    joint_limits_high_[0] = rotation_high * dof_index_[0] + constant_joint_values_[0];
-    joint_limits_high_[1] = extension_high * dof_index_[1] + constant_joint_values_[1];
-    joint_limits_high_[2] = rotation_high * dof_index_[2] + constant_joint_values_[2];
-    joint_limits_high_[3] = rotation_high * dof_index_[3] + constant_joint_values_[3];
-    joint_limits_high_[4] = extension_high * dof_index_[4] + constant_joint_values_[4];
-    joint_limits_high_[5] = rotation_high * dof_index_[5] + constant_joint_values_[5];
 
     current_tip_pose_  = c_robot_.calcKinematic(current_joints_, c_sample_);
 
@@ -138,8 +119,6 @@ void CTRKinematics::publishCurrentJointAndDeltaTipPose(const ros::TimerEvent&)
     rand_transform = Robot_t::Transform::fromVector6_RPY(rand_delta);
 
     desired_tip_pose_ = current_tip_pose_ * rand_transform;
-
-    desired_tip_pose_viz_pub_.publish(TransformToPoseStamped(desired_tip_pose_));
 }
 
 // Used to explore joint space by receiving a joint state and publishing the computed end effector
@@ -186,10 +165,29 @@ void CTRKinematics::run()
 {
     Real step_return;
     current_tip_pose_ = c_robot_.calcKinematic(current_joints_, c_sample_, step_return);
-    Robot_t::Transform delta_tip_pose = current_tip_pose_.inv() * desired_tip_pose_;
-    Robot_t::Vector6 delta_tip_vector;
+    Robot_t::Vector6 current_tip_vector;
+    current_tip_vector = current_tip_pose_.getVector6_RPY();
 
-    delta_tip_vector = delta_tip_pose.getVector6_RPY();
+    Robot_t::Vector6 desired_tip_vector;
+    desired_tip_vector = desired_tip_pose_.getVector6_RPY();
+
+    Robot_t::Vector6 delta_tip_vector;
+    Robot_t::Vector3 delta_translation;
+    delta_translation = desired_tip_vector.head(3) - current_tip_vector.head(3);
+    delta_tip_vector.setVector1(delta_translation);
+
+    Robot_t::Vector3 delta_orientation;
+    delta_orientation.setZero();
+    // angles::shortest_angular_distance_with_limits(current_tip_vector.a(), desired_tip_vector.a(), -M_PI, M_PI, delta_orientation[0]);
+    // angles::shortest_angular_distance_with_limits(current_tip_vector.b(), desired_tip_vector.b(), -M_PI, M_PI, delta_orientation[1]);
+    angles::shortest_angular_distance_with_limits(current_tip_vector.c(), desired_tip_vector.c(), -M_PI, M_PI, delta_orientation[2]);
+
+    Robot_t::Transform delta_tip_pose = current_tip_pose_.inv() * desired_tip_pose_;
+    delta_tip_vector.setVector2(delta_orientation);
+
+    // delta_tip_vector = delta_tip_pose.getVector6_RPY();
+    ROS_INFO_STREAM("Position:\n" << delta_tip_vector.head(3));
+    ROS_INFO_STREAM("Orientation:\n" << delta_tip_vector.tail(3));
     // Publish the cartesian and joint space error
     std_msgs::Float32 tip_error;
     tip_error.data = delta_tip_pose.getTranslation().norm();
@@ -201,7 +199,19 @@ void CTRKinematics::run()
     // compute the jacobian
     Robot_t::MatJacobian j_tip(6, 6);
 
-    ROS_INFO_STREAM("\n" << desired_joints_);
+    // Ensure current_joints_ (atleast one extension) is above a small value greater than 0 and below max extension
+    if (current_joints_[1] <= 0) {
+        current_joints_[1] = FLT_MIN;
+    }
+    if (current_joints_[1] >= 0.06647) {
+        current_joints_[1] = 0.06647 - FLT_MIN;
+    }
+    if (current_joints_[4] <= 0) {
+        current_joints_[4] = FLT_MIN;
+    }
+    if (current_joints_[4] >= 0.06647) {
+        current_joints_[4] = 0.06647 - FLT_MIN;
+    }
     c_robot_.calcJacobian(current_joints_, step_return, trans_diff_, rot_diff_, j_tip);
     //c_robot_.calcJacobian(current_joints_, current_tip_pose_, c_sample_, trans_diff, rot_diff, j_tip);
 
@@ -232,33 +242,33 @@ void CTRKinematics::run()
 
     delta_q = delta_q.cwiseProduct(dof_index_);
 
+    current_joints_+= delta_q;
+
+    // Ensure current_joints_ (atleast one extension) is above a small value greater than 0 and below max extension
+    if (current_joints_[1] <= 0) {
+        current_joints_[1] = FLT_MIN;
+    }
+    if (current_joints_[1] >= 0.06647) {
+        current_joints_[1] = 0.06647 - FLT_MIN;
+    }
+    if (current_joints_[4] <= 0) {
+        current_joints_[4] = FLT_MIN;
+    }
+    if (current_joints_[4] >= 0.06647) {
+        current_joints_[4] = 0.06647 - FLT_MIN;
+    }
+    // current_tip_pose_ = c_robot_.calcKinematic(current_joints_, c_sample_);
+
     // Compute tip estimate according to jacobian
     Robot_t::Vector6 delta_tip_estimate_vector;
     Robot_t::Transform delta_tip_estimate_transform;
-    if (jacobian_tip_estimate_current_joints_[1] >= joint_limits_high_[1]) {
-        delta_q[1] = fmin(0, delta_q[1]);
-        ROS_INFO_STREAM("Q1 Limit reached!");
-    }
-    if (jacobian_tip_estimate_current_joints_[4] >= joint_limits_high_[4]) {
-        delta_q[4] = fmin(0, delta_q[4]);
-        ROS_INFO_STREAM("Q4 Limit reached!");
-    }
+
+    // Ensure jacobian_tip_estimate_current_joints_ (atleast one extension) is above a small value greater than 0 and below max extension
     jacobian_tip_estimate_current_joints_ += delta_q; // limit joint space for jacobian estimate.
     delta_tip_estimate_vector = j_tip * delta_q;
     delta_tip_estimate_transform = Robot_t::Transform::fromVector6_RPY(delta_tip_estimate_vector);
     jacobian_tip_estimate_.setTranslation(jacobian_tip_estimate_.getTranslation() + delta_tip_estimate_transform.getTranslation());
     jacobian_tip_estimate_.setRotation(delta_tip_estimate_transform.getRotation() * jacobian_tip_estimate_.getRotation());
-
-    current_joints_+= delta_q;
-
-    //ROS_INFO_STREAM("Delta Tip Orientation roll: " << delta_tip_vector[3] * 180 / M_PI << " pitch: " << delta_tip_vector[4] * 180 / M_PI << " yaw: " << delta_tip_vector[5] * 180 / M_PI);
-    //ROS_INFO_STREAM("Delta Q:\n" << delta_q);
-
-    // Limit joints
-    //current_joints_(1) = fmin(fmax(0.0 + trans_diff, current_joints_(1)), 0.06647 - trans_diff);
-    // current_joints_(4) = fmin(fmax(0.0 + trans_diff, current_joints_(4)), 0.06647 - trans_diff);
-
-    current_tip_pose_ = c_robot_.calcKinematic(current_joints_, c_sample_);
 
     // Publish new joints
     publishConfiguration();
