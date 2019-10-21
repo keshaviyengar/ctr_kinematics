@@ -91,10 +91,16 @@ find_package(catkin REQUIRED COMPONENTS
   ctm2_visualization
   tf
   tf_conversions
+  message_generation
 )
 
+add_service_files(FILES ComputeForwardKinematics.srv)
+generate_messages(DEPENDENCIES geometry_msgs sensor_msgs)
+
 catkin_package(INCLUDE_DIRS include
-               LIBRARIES {$LIBRARY_NAME})
+               LIBRARIES {$LIBRARY_NAME}
+	       CATKIN_DEPENDS message_runtime sensor_msgs geometry_msgs
+	       )
 
 include_directories(
  include
@@ -105,6 +111,10 @@ add_library(${PROJECT_NAME} ${SOURCES})
 
 add_executable(ctr_test src/ctr_test.cpp src/ctr_kinematics.cpp)
 target_link_libraries(ctr_test ${PROJECT_NAME} ${catkin_LIBRARIES})
+
+add_executable(fk_service_node src/fk_service_node.cpp)
+add_dependencies(fk_service_node ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
+target_link_libraries(fk_service_node ${PROJECT_NAME} ${catkin_LIBRARIES})
 
 # Code from standalone compilation
 # ############### EXECUTABLE ############################

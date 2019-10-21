@@ -17,7 +17,7 @@
 CTRKinematics::CTRKinematics(ros::NodeHandle nh): nh_(nh){
     c_sample_ = 256;
     c_xml_filename_ = "/home/keshav/catkin_ws/src/ctr_kinematics/ctr_resources/ctr_sec2_tub3.xml";
-    c_robot_ = Robot_t(c_sample_, c_xml_filename_); // Number of samples along robot shape and xml file locaion
+    c_robot_ = Robot_t(c_sample_, c_xml_filename_); // Number of samples along robot shape and xml file location
 
     tip_pose_pub_ = nh_.advertise<geometry_msgs::Pose>("tip_pose", 10);
 
