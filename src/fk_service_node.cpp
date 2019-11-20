@@ -20,9 +20,14 @@ Robot_t c_robot_ = Robot_t(c_sample_, c_xml_filename_); // Number of samples alo
 bool fk_service_callback(ctr_kinematics::ComputeForwardKinematics::Request& request,
                          ctr_kinematics::ComputeForwardKinematics::Response& response)
 {
-    // convert sensor_msgs JointState to VectorJ joints, for now index-wise
+    // convert sensor_msgs JointState to VectorJ joints
+    // For the 2 section 3 tube robot there will be 6 joint values
+    // [alpha_rigid, phi_0 = phi_1, alpha_0, alpha_1, ]
+
     Robot_t::VectorJ c_joint_values(c_robot_.getNJointValues(), 1);
     request.joint_values.position.resize(c_robot_.getNJointValues());
+
+
     c_joint_values(0) = request.joint_values.position.at(0);
     c_joint_values(1) = request.joint_values.position.at(1);
     c_joint_values(2) = request.joint_values.position.at(2);

@@ -27,7 +27,7 @@ public:
 
     void publishConfiguration();
     void jointStateCallback(const sensor_msgs::JointStateConstPtr &msg);
-    void DesiredTipPoseCallback(const geometry_msgs::PoseStampedConstPtr &msg);
+    void DesiredTipPoseCallback(const geometry_msgs::PoseConstPtr &msg);
 
     void run();
 
@@ -36,7 +36,7 @@ public:
     void publishASampledJointAndTipPose(const ros::TimerEvent&);
     void publishCurrentJointAndDeltaTipPose(const ros::TimerEvent&);
 
-    geometry_msgs::PoseStamped TransformToPoseStamped(Robot_t::Transform &transform);
+    geometry_msgs::PoseStamped TransformToPoseStamped(Robot_t::Transform &transform, const double &scale);
 
 private:
     ros::NodeHandle nh_;
@@ -79,6 +79,9 @@ private:
     Robot_t::VectorJ jacobian_tip_estimate_current_joints_;
     Robot_t::VectorJ desired_joints_;
     Robot_t::Transform jacobian_tip_estimate_;
+
+    // Scale up for visualization
+    double scale_ = 100;
 };
 
 

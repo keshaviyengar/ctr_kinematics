@@ -17,6 +17,11 @@ class DesiredGoalInteractiveMarker(object):
         self.interactive_marker_pub = rospy.Publisher("desired_goal", Pose, queue_size=10)
         self.current_pose = Pose()
 
+        self.base_frame = "world"
+        # self.base_frame = "base_link"
+
+        self.box_scale = 0.5
+
         pos = Point(0, 0, 3)
         self.make_6dof_desired_goal_marker(pos)
 
@@ -52,9 +57,9 @@ class DesiredGoalInteractiveMarker(object):
         marker = Marker()
 
         marker.type = Marker.CUBE
-        marker.scale.x = msg.scale * 1.0 
-        marker.scale.y = msg.scale * 1.0 
-        marker.scale.z = msg.scale * 1.0 
+        marker.scale.x = msg.scale * self.box_scale
+        marker.scale.y = msg.scale * self.box_scale
+        marker.scale.z = msg.scale * self.box_scale
         marker.color.r = 0.5
         marker.color.g = 0.5
         marker.color.b = 0.5
@@ -64,9 +69,9 @@ class DesiredGoalInteractiveMarker(object):
     def make_6dof_desired_goal_marker(self, position):
         # Visual marker settings
         int_marker = InteractiveMarker()
-        int_marker.header.frame_id = "base_link"
+        int_marker.header.frame_id = "world"
         int_marker.pose.position = position
-        int_marker.scale = 1.5
+        int_marker.scale = self.box_scale
         int_marker.name = "desired_goal"
         int_marker.description = "Desired goal marker for CTR"
 

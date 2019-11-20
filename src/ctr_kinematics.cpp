@@ -22,7 +22,8 @@ CTRKinematics::CTRKinematics(ros::NodeHandle nh): nh_(nh){
     tip_pose_pub_ = nh_.advertise<geometry_msgs::Pose>("tip_pose", 10);
 
     //joint_sub_ = nh_.subscribe("joint_state", 10, &CTRKinematics::jointStateCallback, this);
-    tip_pose_sub_ = nh_.subscribe("desired_tip_pose", 10, &CTRKinematics::DesiredTipPoseCallback, this);
+    // tip_pose_sub_ = nh_.subscribe("desired_tip_pose", 10, &CTRKinematics::DesiredTipPoseCallback, this);
+    tip_pose_sub_ = nh_.subscribe("desired_goal", 10, &CTRKinematics::DesiredTipPoseCallback, this);
 
     sampled_desired_tip_pose_pub_ = nh_.advertise<geometry_msgs::PoseStamped>("desired_tip_pose", 10);
     // Visualize poses
@@ -35,7 +36,7 @@ CTRKinematics::CTRKinematics(ros::NodeHandle nh): nh_(nh){
     joint_error_pub_ = nh_.advertise<std_msgs::Float32>("joint_error", 10);
 
     // Sampling timers for testing
-    new_sample_ = nh_.createTimer(ros::Duration(10.0), &CTRKinematics::publishASampledJointAndTipPose, this);
+    // new_sample_ = nh_.createTimer(ros::Duration(10.0), &CTRKinematics::publishASampledJointAndTipPose, this);
     //new_sample_ = nh_.createTimer(ros::Duration(10.0), &CTRKinematics::publishCurrentJointAndDeltaTipPose, this);
 
     // Initialize joint values and desired tip pose
@@ -150,11 +151,11 @@ void CTRKinematics::jointStateCallback(const sensor_msgs::JointStateConstPtr &ms
 }
 
 // Receives a desired tip pose, sets a private variable desired_tip_pose_
-void CTRKinematics::DesiredTipPoseCallback(const geometry_msgs::PoseStampedConstPtr &msg)
+void CTRKinematics::DesiredTipPoseCallback(const geometry_msgs::PoseConstPtr &msg)
 {
     // TF pose to eigen transform
     tf::Pose desired_tip_pose;
-    tf::poseMsgToTF(msg->pose, desired_tip_pose);
+    tf::poseMsgToTF(*msg, desired_tip_pose);
     Eigen::Affine3d desired_tip_eigen;
     tf::poseTFToEigen(desired_tip_pose, desired_tip_eigen);
     desired_tip_pose_ = Robot_t::Transform::fromEigenMatrix(desired_tip_eigen.matrix());
@@ -286,7 +287,7 @@ void CTRKinematics::publishConfiguration()
         Robot_t::Transform transform_sample = c_robot_.getTransformSample(iSp);
 
         tf::Vector3 translation(transform_sample.getX(), transform_sample.getY(), transform_sample.getZ());
-        transform.setOrigin(translation * 100);
+        transform.setOrigin(translation * scale_);
         tf::Quaternion rotation;
         rotation.setX(transform_sample.getQuaternion().x());
         rotation.setY(transform_sample.getQuaternion().y());
@@ -298,18 +299,18 @@ void CTRKinematics::publishConfiguration()
 
         br.sendTransform(tf::StampedTransform(transform,ros::Time::now(), "world", std::to_string(iSp)));
     }
-    desired_tip_pose_viz_pub_.publish(TransformToPoseStamped(desired_tip_pose_));
-    current_tip_pose_viz_pub_.publish(TransformToPoseStamped(current_tip_pose_));
-    tip_pose_estimate_viz_pub_.publish(TransformToPoseStamped(jacobian_tip_estimate_));
+    desired_tip_pose_viz_pub_.publish(TransformToPoseStamped(desired_tip_pose_, 1.0));
+    current_tip_pose_viz_pub_.publish(TransformToPoseStamped(current_tip_pose_, scale_));
+    tip_pose_estimate_viz_pub_.publish(TransformToPoseStamped(jacobian_tip_estimate_, scale_));
 }
 
-geometry_msgs::PoseStamped CTRKinematics::TransformToPoseStamped(Robot_t::Transform &transform) {
+geometry_msgs::PoseStamped CTRKinematics::TransformToPoseStamped(Robot_t::Transform &transform, const double &scale) {
     geometry_msgs::PoseStamped pose_stamped;
     pose_stamped.header.stamp = ros::Time::now();
     pose_stamped.header.frame_id = "world";
-    pose_stamped.pose.position.x = transform.getX() * 100;
-    pose_stamped.pose.position.y = transform.getY() * 100;
-    pose_stamped.pose.position.z = transform.getZ() * 100;
+    pose_stamped.pose.position.x = transform.getX() * scale;
+    pose_stamped.pose.position.y = transform.getY() * scale;
+    pose_stamped.pose.position.z = transform.getZ() * scale;
     pose_stamped.pose.orientation.x = transform.getQuaternion().normalized().x();
     pose_stamped.pose.orientation.y = transform.getQuaternion().normalized().y();
     pose_stamped.pose.orientation.z = transform.getQuaternion().normalized().z();
