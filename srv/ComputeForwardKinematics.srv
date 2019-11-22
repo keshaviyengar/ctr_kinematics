@@ -1,3 +1,5 @@
+# joint_values are indexed innermost to outermost tubes in normal representation
+# [alpha_0, beta_0 + L_0, alpha_1, beta_1 + L_1, ..., alpha_n, beta_n + L_n]
 sensor_msgs/JointState joint_values
 ---
 geometry_msgs/Pose end_effector_pose

@@ -1,3 +1,4 @@
+#!/usr/bin/env python
 import rospy
 
 from interactive_markers.interactive_marker_server import *

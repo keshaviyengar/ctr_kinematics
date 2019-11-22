@@ -1,0 +1,5 @@
+<launch>
+    <node pkg="ctr_kinematics" name="kinematics" type="ctr_test"/>
+    <node pkg="ctr_kinematics" name="desired_goal_marker_node" type="interactive_desired_goal.py"/>
+    <node type="rviz" name="rviz" pkg="rviz" args="-d $(find ctr_kinematics)/ctr.rviz" />
+</launch>

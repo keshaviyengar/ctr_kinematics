@@ -1,0 +1,3 @@
+<launch>
+    <node pkg="ctr_kinematics" name="fk_service" type="fk_service_node"/>
+</launch>
