@@ -1,217 +1,197 @@
 import numpy as np
-import scipy as sp
-import scipy.integrate
-import rospy
+from math import pi, pow
+import time
+
+from scipy.integrate import odeint
 
 
-class CtrModel(object):
-    def __init__(self):
-        # Number of tubes
-        self.n = 3
+class TubeParameters(object):
+    def __init__(self, length, length_curved, outer_diameter, inner_diameter, stiffness, torsional_stiffness,
+                 x_curvature, y_curvature):
+        self.L = length
+        self.L_s = length - length_curved
+        self.L_c = length_curved
+        self.J = (pi * (pow(outer_diameter, 4) - pow(inner_diameter, 4))) / 32
+        self.I = (pi * (pow(outer_diameter, 4) - pow(inner_diameter, 4))) / 64
+        self.E = stiffness
+        self.G = torsional_stiffness
+        self.U_x = x_curvature
+        self.U_y = y_curvature
 
-        # Define length of tubes
-        self.tube_length = 1e-3 * np.array([431, 332, 174])
-        # Define length of curved part of tubes
-        self.curved_length = 1e-3 * np.array([103, 113, 134])
 
-        # Material properties and inertias
-        # Young's Modulus
-        self.E = np.array([6.4359738368e+10, 5.2548578304e+10, 4.7163091968e+10])
-        # Polar moment of inertia
-        self.J = 1.0e-11 * np.array([0.0120, 0.0653, 0.1686])
-        # Second moment of inertia
-        self.I = 1.0e-12 * np.array([0.0601, 0.3267, 0.8432])
-        # Shear modulus
-        self.G = np.array([2.5091302912e+10, 2.1467424256e+10, 2.9788923392e+10])
-        # Curvature vector of x-component
-        self.Ux = np.array([21.3, 13.108, 3.5])
-        # Curvature vector of y-component
-        self.Uy = np.array([0, 0, 0])
+# Initialized with objects of class TubeParameters
+class SegmentRobot(object):
+    def __init__(self, t1, t2, t3, base):
+        n = 3
 
-    # @params: E, Ux, Uy, I, G, J, l, B, l_k
-    # stiffness, curvature vector x, curvature vector y, moment of inertia, torsional constant,
-    # second moment of inertia vectors for each tube, vector of tube length, tube extension relative to s=0,
-    # vector of curved path length.
-    # @output: L, d1, E, Ux, Uy, I, G, J
-    # Length of each segment, position of each tube end, segment stiffness, segment curvature in x, segment
-    # curvature in y, segment moment of inertia, segment torsion constant, segment second moment of inertia
-    def segment_robot(self, E, Ux, Uy, I, G, J, l, B, l_k):
-        # Vectors are sorted. Elements are from inner most first.
-        k = len(l)
-        d1 = l + B  # positions of end of tubes
-        d2 = d1 - l_k  # position of where bending starts
-        points = np.array([0, B, d2, d1])
-        L = np.sort(points)
-        index = np.argsort(L)
-        L = 1e-5 * np.floor(1e5 * np.diff(L))  # length of each segment
+        stiffness = np.array([t1.E, t2.E, t3.E])
+        curve_x = np.array([t1.U_x, t2.U_x, t3.U_x])
+        curve_y = np.array([t1.U_y, t2.U_y, t3.U_y])
 
-        EE = np.zeros(3, len(L))
-        II = EE, GG = EE, JJ = EE, UUx = EE, UUy = EE
+        # position of tip of tubes
+        d_tip = np.array([t1.L, t2.L, t3.L]) + base
+        # positions where bending starts
+        d_c = d_tip - np.array([t1.L_c, t2.L_c, t3.L_c])
+        points = np.hstack((0, base, d_c, d_tip))
+        index = np.argsort(points)
+        # floor is used to ensure absolute zero is used
+        segment_length = 1e-5 * np.floor(1e5 * np.diff(np.sort(points)))
 
-        # Iterating through tubes
-        for i in range(k):
-            a = np.asarray(index == (i + 1))  # Find where tube begins
-            b = np.asarray(index == (1 * k + i + 1))  # Find where tube curve starts
-            c = np.asarray(index == (2 * k + i + 1))  # Find where tube ends
+        e = np.zeros((3, segment_length.size))
+        u_x = np.zeros((3, segment_length.size))
+        u_y = np.zeros((3, segment_length.size))
 
-            if L(a) == 0: a = a + 1
-            if L(b) == 0: b = b + 1
-            if L(c) <= len(L):
-                if L(c) == 0: c = c + 1
-
-            EE[i, a:c - 1] = E[i]
-            II[i, a:c - 1] = I[i]
-            GG[i, a:c - 1] = G[i]
-            JJ[i, a:c - 1] = J[i]
-            UUx[i, b:c - 1] = Ux[i]
-            UUy[i, b:c - 1] = Uy[i]
-
-        l = L[L != 0]  # Get only non-zero elements
-        E = np.zeros(k, len(l))
-        I = E, G = E, J = E, UUx = E, UUy = E
-
-        for i in range(k):
-            E[i, :] = EE[i, L[L != 0]]
-            I[i, :] = II[i, L[L != 0]]
-            G[i, :] = GG[i, L[L != 0]]
-            J[i, :] = JJ[i, L[L != 0]]
-            Ux[i, :] = UUx[i, L[L != 0]]
-            Uy[i, :] = UUy[i, L[L != 0]]
-        L = L[L != 0]
-
-        return L, d1, E, Ux, Uy, I, G, J
-
-    def compute_forward_kinematics(self, q, uz_0):
-        l = self.tube_length
-        l_k = self.curved_length
-
-        # q0 to q2 is extension and q3 to q5 is rotation of each tube from base
-        B = q[1:3]
-        alpha = q[4:6] - B * np.transpose(uz_0)
-        alpha_0 = alpha[0]
-
-        # Segment tubes
-        [L, d_tip, EE, UUx, UUy] = self.segment_robot(self.E, self.Ux, self.Uy,
-                                                      self.I, self.G, self.J, l, B, l_k)
-        SS = L
-        for i in range(len(L)):
-            SS[i] = sum(L[0:i])
-        # S is segmented abssica of tube after template
-        S = SS[SS + np.min(B) > 0] + np.min(B)
-        E = np.zeros([self.n, len(S)])
-        Ux = E, Uy = E
-        for i in range(self.n):
-            E[i, :] = EE[i, SS + min(B) > 0]
-            Ux[i, :] = UUx[i, SS + np.min(B) > 0]
-            Uy[i, :] = UUx[i, SS + np.min(B) > 0]
-
-        # Each (i, j) in the element above matrices correspond to the jth segment of the
-        # ith tube with inner most first in order
-        # vector of x-coordinates starting at zero
-        span = np.array([0, S])
-        # Solve length, curvature and twist angles
-        Length = np.array([])
-        r = np.array([])
-        U_z = np.array([])
-        a = np.array([])
-        r0 = np.zeros([3, 1])
-        R0 = np.ndarray([[np.cos(alpha_0), np.sin(alpha_0), 0],
-                         [-np.sin(alpha_0), np.cos(alpha_0), 0],
-                         [0, 0, 1]])
-        R0 = np.reshape([9, 1])
-
-        for segment in range(len(S)):
-            s_span = np.array([span[segment], span[segment + 1] - 1e-6])
-            y0_1 = np.array([r0, R0])
-            y0_2 = np.zeros([2 * self.n, 1])
-            y0_2[self.n:2 * self.n] = alpha
-            y0_2[0:self.n] = uz_0
-            y_0 = np.array([y0_2, y0_1])
-
-            # ode equation
-            [s, y] = scipy.integrate.odeint(self.ode, y_0, s_span, [Ux[:, segment], Uy[:, segment],
-                                                                    E[:, segment] * np.transpose(self.I),
-                                                                    self.G * self.J, self.n])
-            # first n elemetns of y are curvatures along z, eg y = [u1_z, u2_z ..]
-            # last n elements of y are twist angles, alpha_i
-            shape = np.array([y[:, 2 * self.n], y[:, 2 * self.n + 1], y[:, 2 * self.n + 2]])
-            Length = np.append([Length, s])
-            r = np.append([r, shape])
-            U_z = np.append([U_z, y[0:self.n]])
-            a = np.append([a, y[:, self.n:2 * self.n]])
-            r0 = np.transpose(shape[-1, :])
-            R0 = np.transpose(y[-1, 2 * self.n + 3: 2 * self.n + 11])
-            uz_0 = np.transpose(U_z[-1, :])
-            alpha = np.transpose(a[-1, :])
-
-        Uz = np.zeros([self.n, 1])
-        for i in range(self.n):
-            index = np.min(np.abs(Length - d_tip[i] + 1e-6))
-            Uz[i] = U_z[index, i]
-
-        r1 = r
-        tube2_end = np.min(np.abs(Length - d_tip[2]))
-        r2 = np.array([r[0:tube2_end, 0], r[0:tube2_end, 1], r[0:tube2_end, 2]])
-        tube3_end = np.min(np.abs(Length - d_tip[3]))
-        r3 = np.array([r[0:tube3_end, 0], r[0:tube3_end, 1], r[0:tube3_end, 2]])
-
-        return r1, r2, r3, Uz
-
-    def publish_segment_transforms(self):
-        pass
-
-    def ode(self, y, Ux, Uy, EI, GJ, n):
-        dyds = np.zeros(2 * n + 12, 1)
-        # First n elements of y are curvatures along z, eg. y = [u1_z, u2_z ...]
-        # Second n elements of y are twist angles, alpha_i
-        # Last 12 elements r (position) and R (orientations)
-
-        # Calculate tube's curvature x and y direction
-        ux = np.zeros(n, 1)
-        uy = np.zeros(n, 1)
-
-        # Calculate other tube's curvature in x and y direction
         for i in range(n):
-            ux[i] = (1 / (EI[1] + EI[2] + EI[3]) *
-                     EI[1] * Ux[1] * np.cos(y[n + i] - y[n + 1]) + EI[1] * Uy[1] * np.sin(y[n + i] - y[n + 1]) +
-                     EI[2] * Ux[2] * np.cos(y[n + i] - y[n + 2]) + EI[2] * Uy[2] * np.sin(y[n + i] - y[n + 2]) +
-                     EI[3] * Ux[3] * np.cos(y[n + i] - y[n + 3]) + EI[3] * Uy[3] * np.sin(y[n + i] - y[n + 3]))
-            uy[i] = (1 / (EI[1] + EI[2] + EI[3]) *
-                     EI[1] * Ux[1] * np.sin(y[n + i] - y[n + 1]) + EI[1] * Uy[1] * np.cos(y[n + i] - y[n + 1]) +
-                     EI[2] * Ux[2] * np.sin(y[n + i] - y[n + 2]) + EI[2] * Uy[2] * np.cos(y[n + i] - y[n + 2]) +
-                     EI[3] * Ux[3] * np.sin(y[n + i] - y[n + 3]) + EI[3] * Uy[3] * np.cos(y[n + i] - y[n + 3]))
+            # find where the tube begins
+            aa = np.where(index == i + 1)
+            a = aa[0]
+            # find where tube curve starts
+            bb = np.where(index == i + 4)
+            b = bb[0]
+            # Find where tube ends
+            cc = np.where(index == i + 7)
+            c = cc[0]
+            if segment_length[a] == 0:
+                a += 1
+            if segment_length[b] == 0:
+                b += 2
+            if c.item() <= segment_length.size - 1:
+                if segment_length[c] == 0:
+                    c += 1
 
-        # Might need to transpose GJ
-        GJ[EI == 0] = 0
-        for i in range(n):
-            if EI[i] == 0:
+            e[i, np.arange(a, c)] = stiffness[i]
+            u_x[i, np.arange(b, c)] = curve_x[i]
+            u_y[i, np.arange(b, c)] = curve_y[i]
+
+        # Removing zero lengths
+        length = segment_length[np.nonzero(segment_length)]
+        ee = e[:, np.nonzero(segment_length)]
+        uu_x = u_x[:, np.nonzero(segment_length)]
+        uu_y = u_y[:, np.nonzero(segment_length)]
+
+        length_sum = np.cumsum(length)
+        # s is the segmented abscissa of the tube after template
+        self.S = length_sum[length_sum + min(base) > 0] + min(base)
+        # Truncating matrices, removing elements that correspond to the tube before template
+        e_t = ee[length_sum + min(base) > 0 * ee].reshape(3, len(self.S))
+        self.EI = (e_t.T * np.array([t1.I, t2.I, t3.I])).T
+        self.U_x = uu_x[length_sum + min(base) > 0 * ee].reshape(3, len(self.S))
+        self.U_y = uu_y[length_sum + min(base) > 0 * ee].reshape(3, len(self.S))
+        self.GJ = np.array([t1.G, t2.G, t3.G]) * np.array([t1.J, t2.J, t3.J])
+
+
+class CTRModel(object):
+    def __init__(self, tube_1, tube_2, tube_3, base):
+        self.segments = SegmentRobot(tube_1, tube_2, tube_3, base)
+        self.tube_1 = tube_1
+        self.tube_2 = tube_2
+        self.tube_3 = tube_3
+
+    def fk(self, uz_0, alpha_0, r_0, R_0):
+        Length = np.empty(0)
+        r = np.empty((0, 3))
+        u_z = np.empty((0, 3))
+        alpha = np.empty((0, 3))
+        span = np.append([0], self.segments.S)
+        for seg in range(0, len(self.segments.S)):
+            # Initial conditions, 3 initial twist + 3 initial angle + 3 initial position + 9 initial rotation matrix
+            y_0 = np.vstack((uz_0.reshape(3, 1), alpha_0, r_0, R_0)).ravel()
+            s_span = np.linspace(span[seg], span[seg + 1] - 1e-6, num=30)
+            s = odeint(self.ode_eq, y_0, s_span, args=(self.segments.U_x[:, seg], self.segments.U_y[:, seg],
+                                                       self.segments.EI[:, seg], self.segments.GJ))
+            Length = np.append(Length, s_span)
+            u_z = np.vstack((u_z, s[:, (0, 1, 2)]))
+            alpha = np.vstack((alpha, s[:, (3, 4, 5)]))
+            r = np.vstack((r, s[:, (6, 7, 8)]))
+
+            # new boundary conditions for next segment
+            r_0 = r[-1, :].reshape(3, 1)
+            R_0 = np.array(s[-1, 9:]).reshape(9, 1)
+            uz_0 = u_z[-1, :].reshape(3, 1)
+            alpha_0 = alpha[-1, :].reshape(3, 1)
+
+        d_tip = np.array([self.tube_1.L, self.tube_2.L, self.tube_3.L]) + beta
+        u_z_end = np.array([0.0, 0.0, 0.0])
+        tip_pos = np.array([0, 0, 0])
+        for k in range(0, 3):
+            b = np.argmax(Length >= d_tip[k] - 1e-3)  # Find where tube curve starts
+            u_z_end[k] = u_z[b, k]
+            tip_pos[k] = b
+
+        return r, u_z_end, tip_pos
+
+    def ode_eq(self, y, s, ux_0, uy_0, ei, gj):
+        dydt = np.empty([18, 1])
+        ux = np.empty([3, 1])
+        uy = np.empty([3, 1])
+        for i in range(3):
+            ux[i] = (1 / (ei[0] + ei[1] + ei[2])) * \
+                (ei[0] * ux_0[0] * np.cos(y[3 + i] - y[3 + 0]) + ei[0] * uy_0[0] * np.sin(y[3 + i] - y[3 + 0]) +
+                 ei[1] * ux_0[1] * np.cos(y[3 + i] - y[3 + 1]) + ei[1] * uy_0[1] * np.sin(y[3 + i] - y[3 + 1]) +
+                 ei[2] * ux_0[2] * np.cos(y[3 + i] - y[3 + 2]) + ei[2] * uy_0[2] * np.sin(y[3 + i] - y[3 + 2]))
+            uy[i] = (1 / (ei[0] + ei[1] + ei[2])) * \
+                    (-ei[0] * ux_0[0] * np.sin(y[3 + i] - y[3 + 0]) + ei[0] * uy_0[0] * np.cos(y[3 + i] - y[3 + 0]) +
+                     -ei[1] * ux_0[1] * np.sin(y[3 + i] - y[3 + 1]) + ei[1] * uy_0[1] * np.cos(y[3 + i] - y[3 + 1]) +
+                     -ei[2] * ux_0[2] * np.sin(y[3 + i] - y[3 + 2]) + ei[2] * uy_0[2] * np.cos(y[3 + i] - y[3 + 2]))
+        for j in range(3):
+            if ei[j] == 0:
                 # ui_z
-                dyds[i] = 0
+                dydt[j] = 0
                 # alpha_i
-                dyds[n + i] = 0
+                dydt[3+j] = 0
             else:
                 # ui_z
-                dyds[i] = ((EI[i]) / (GJ[i])) * (ux[i] * Uy[i] - uy[i] * Ux[i])
+                dydt[j] = ((ei[j]) / (gj[j])) * (ux[j] * uy_0[j] - uy[j] * ux_0[j])
                 # alpha_i
-                dyds[n + 1] = y[i]
+                dydt[3 + j] = y[j]
 
-        e3 = np.array([0, 0, 1])
-        uz = y[0:n]
-        # y[0] to y[2] are positions of point materials
-        # y[3] to y[11] are rotation matrix elements
-        R1 = np.ndarray([y[2 * n + 3], y[2 * n + 4], y[2 * n + 5]],
-                        [y[2 * n + 6], y[2 * n + 7], y[2 * n + 8]],
-                        [y[2 * n + 9], y[2 * n + 10], y[2 * n + 11]])
+        e3 = np.array([0, 0, 1]).reshape(3, 1)
+        uz = y[0:3]
+        R = np.array(y[9:]).reshape(3, 3)
+        u_hat = np.array([(0, - uz[0], uy[0]), (uz[0], 0, -ux[0]), (-uy[0], ux[0], 0)])
+        dr = np.dot(R, e3)
+        dR = np.dot(R, u_hat).ravel()
+        dydt[6] = dr[0]
+        dydt[7] = dr[1]
+        dydt[8] = dr[2]
 
-        u_hat = np.ndarray([0, -uz[0], uy[1]],
-                           [uz[0], 0, ux[0]],
-                           [uy[0], ux[0], 0])
-        # odes
-        dr1 = R1 * e3
-        dR1 = R1 * u_hat
+        for k in range(3, 12):
+            dydt[6 + k] = dR[k - 3]
 
-        dyds[2 * n] = dr1[0], dyds[2 * n + 1] = dr1[1], dyds[2 * n + 2] = dr1[2]
+        return dydt.ravel()
 
-        dR = np.transpose(dR1)[:]
-        for i in range(4, 12):
-            dyds[2 * n + i] = dR(i - 2)
+
+if __name__ == '__main__':
+    # define tube parameters
+    # length, length_curved, inner_diameter, outer_diameter, stiffness, torsional_stiffness, x_curvature, y_curvature
+    tube1 = TubeParameters(length=431e-3, length_curved=103e-3, inner_diameter=2*0.35e-3, outer_diameter=2*0.55e-3,
+                           stiffness=6.4359738368e+10, torsional_stiffness=2.5091302912e+10, x_curvature=21.3,
+                           y_curvature=0)
+    tube2 = TubeParameters(length=332e-3, length_curved=113e-3, inner_diameter=2 * 0.7e-3, outer_diameter=2 * 0.9e-3,
+                           stiffness=5.2548578304e+10, torsional_stiffness=2.1467424256e+10, x_curvature=13.108,
+                           y_curvature=0)
+    tube3 = TubeParameters(length=174e-3, length_curved=134e-3, inner_diameter=2e-3, outer_diameter=2 * 1.1e-3,
+                           stiffness=4.7163091968e+10, torsional_stiffness=2.9788923392e+10, x_curvature=3.5,
+                           y_curvature=0)
+    # Joint variables
+    q = np.array([0.01, 0.015, 0.019, np.pi, np.pi * 5 / 2, np.pi / 2])
+    # Initial position of joints
+    q_0 = np.array([-0.2858, -0.2025, -0.0945, 0, 0, 0])
+    # position of tubes' base from template (i.e., s=0)
+    beta = q[0:3] + q_0[0:3]
+
+    ctr_model = CTRModel(tube1, tube2, tube3, beta)
+
+    r_0_ = np.array([0, 0, 0]).reshape(3, 1)
+    alpha_1_0 = q[3] + q_0[3]
+    R_0_ = np.array([[np.cos(alpha_1_0), -np.sin(alpha_1_0), 0], [np.sin(alpha_1_0), np.cos(alpha_1_0), 0], [0, 0, 1]])\
+        .reshape(9, 1)
+    alpha_0_ = q[3:].reshape(3, 1) + q_0[3:].reshape(3, 1)
+
+    # initial twist
+    uz_0_ = np.array([0, 0, 0])
+
+    shape, U_z, tip = ctr_model.fk(uz_0_, alpha_0_, r_0_, R_0_)
+
+    print(tip)
+
