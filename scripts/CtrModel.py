@@ -3,6 +3,8 @@ from math import pi, pow
 import time
 
 from scipy.integrate import odeint
+import rospy
+import tf
 
 
 class TubeParameters(object):
@@ -87,6 +89,16 @@ class CTRModel(object):
         self.tube_2 = tube_2
         self.tube_3 = tube_3
 
+        rospy.init_node("exact_ctr_kinematics")
+        self.br = tf.TransformBroadcaster()
+
+    def run(self, q, q0, uz_0, alpha_0, r_0, R_0):
+        # position of tubes' base from template (i.e., s=0)
+        beta = q[0:3] + q0[0:3]
+        self.segments = SegmentRobot(self.tube_1, self.tube_2, self.tube_3, beta)
+        r, u_z_end, tip_pos = self.fk(uz_0, alpha_0, r_0, R_0)
+        self.publish_transforms(r)
+
     def fk(self, uz_0, alpha_0, r_0, R_0):
         Length = np.empty(0)
         r = np.empty((0, 3))
@@ -160,6 +172,17 @@ class CTRModel(object):
 
         return dydt.ravel()
 
+    # n,3 shape transforms, no orientation information
+    def publish_transforms(self, r):
+        count = 0
+        for point in r:
+            self.br.sendTransform((point[0] * 100, point[1] * 100, point[2] * 100),
+                                  (tf.transformations.quaternion_from_euler(0, 0, 0)),
+                                  rospy.Time.now(),
+                                  "point_" + str(count),
+                                  "world")
+            count = count + 1
+
 
 if __name__ == '__main__':
     # define tube parameters
@@ -191,7 +214,7 @@ if __name__ == '__main__':
     # initial twist
     uz_0_ = np.array([0, 0, 0])
 
-    shape, U_z, tip = ctr_model.fk(uz_0_, alpha_0_, r_0_, R_0_)
-
-    print(tip)
+    while not rospy.is_shutdown():
+        ctr_model.run(q, q_0, uz_0_, alpha_0_, r_0_, R_0_)
+        rospy.sleep(0.5)
 
