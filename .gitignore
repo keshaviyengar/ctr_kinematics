@@ -2,3 +2,4 @@
 ctr_external/
 .idea/
 scripts/venv*
+*.egg-info/
