@@ -49,7 +49,6 @@ class CtrEnv(gym.GoalEnv):
 
         # Initialize joint space
         joint_space_low = np.array([])
-        joint_space_high = np.array([])
         for tube_length in [tube1.L, tube2.L, tube3.L]:
             joint_space_low = np.append(joint_space_low, [-tube_length])
 
@@ -83,11 +82,8 @@ class CtrEnv(gym.GoalEnv):
         # Action space
         action_length_limit = 0.001
         action_orientation_limit = np.deg2rad(5)
-        action_low = np.array([])
-        action_high = np.array([])
-        for i in range(0, self.n):
-            action_low = np.append(action_low, [-action_orientation_limit, -action_length_limit])
-            action_high = np.append(action_high, [action_orientation_limit, action_length_limit])
+        action_low = np.concatenate((np.full(self.n, -action_length_limit), np.full(self.n, -action_orientation_limit)))
+        action_high = np.concatenate((np.full(self.n, action_length_limit), np.full(self.n, action_orientation_limit)))
 
         self.action_space = gym.spaces.Box(low=action_low, high=action_high, dtype="float32")
 
@@ -144,7 +140,7 @@ class CtrEnv(gym.GoalEnv):
         reward = self.compute_reward(self.achieved_goal, self.desired_goal, dict())
         state = np.concatenate((self.trig_joint_state, self.desired_goal - self.achieved_goal))
 
-        info = {}
+        info = {'is_success': reward == 0}
 
         return {'observation': state, 'achieved_goal': tip_pos, 'desired_goal': self.desired_goal}, reward, r == 0, info
 
