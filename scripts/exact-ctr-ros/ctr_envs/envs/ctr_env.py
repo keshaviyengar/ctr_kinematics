@@ -42,15 +42,16 @@ class CtrEnv(gym.GoalEnv):
         # Initialize trig joint space
         trig_joint_low = np.array([])
         trig_joint_high = np.array([])
+        zero_tol = 1e-4
         for tube_length in [tube1.L, tube2.L, tube3.L]:
-            trig_joint_low = np.append(trig_joint_low, [-1, -1, -tube_length])
+            trig_joint_low = np.append(trig_joint_low, [-1, -1, -tube_length + zero_tol])
             trig_joint_high = np.append(trig_joint_high, [1, 1, 0])
         self.trig_joint_space = gym.spaces.Box(low=trig_joint_low, high=trig_joint_high, dtype=np.float32)
 
         # Initialize joint space
         joint_space_low = np.array([])
         for tube_length in [tube1.L, tube2.L, tube3.L]:
-            joint_space_low = np.append(joint_space_low, [-tube_length])
+            joint_space_low = np.append(joint_space_low, [-tube_length + zero_tol])
 
         joint_space_low = np.concatenate((joint_space_low, np.full(int(self.n), -np.inf)))
         joint_space_high = np.concatenate((np.zeros(int(self.n)), np.full(int(self.n), np.inf)))
