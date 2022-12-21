@@ -2,7 +2,6 @@ import numpy as np
 
 
 class Segment:
-
     def __init__(self, t1, t2, t3=None, base=None):
         if t3 is not None:
             num_tubes = 3

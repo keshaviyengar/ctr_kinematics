@@ -1,8 +1,8 @@
 import numpy as np
 from copy import deepcopy
 from scipy.integrate import solve_ivp
-from Segment import Segment
-from Tube import Tube
+from ctr_kinematics.ctr_kinematics.Segment import Segment
+from ctr_kinematics.ctr_kinematics.Tube import Tube
 
 import matplotlib.pyplot as plt
 
@@ -10,7 +10,8 @@ import matplotlib.pyplot as plt
 class ThreeTubeCTRKinematics(object):
     def __init__(self, system_parameters):
         # Tube parameters
-        self.system_parameters = deepcopy(system_parameters)
+        self.system_parameters = [Tube(**system_parameters['tube_2']), Tube(**system_parameters['tube_1']),
+                                  Tube(**system_parameters['tube_0'])]
         # positions and transformation of backbone
         self.r = []
         self.r_transforms = []

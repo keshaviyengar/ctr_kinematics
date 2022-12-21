@@ -1,8 +1,8 @@
 import numpy as np
 from Tube import Tube
 from CTR_Model import CTR_Model
-#from ctr_reach_envs.src.plotting_utils import animate_trajectory, plot_trajectory, plot_path_only, plot_intermediate
-#from ctr_reach_envs.src.paths import velocity_based_line_traj
+from ctr_utils.paths import velocity_based_line_traj
+from ctr_utils.plotting_utils import plot_path_only, plot_trajectory
 
 
 class JacobianIk(object):
@@ -101,16 +101,9 @@ class JacobianIk(object):
         return x_d_array.reshape(-1, 3), x_c_array.reshape(-1, 3), q_array.reshape(-1, 6)
 
 
-
 if __name__ == '__main__':
-    solve_ik = False
-    solve_path_following = True
     # Defining parameters of each tube, numbering starts with the most inner tube
     # length, length_curved, diameter_inner, diameter_outer, stiffness, torsional_stiffness, x_curvature, y_curvature
-    #tube1 = Tube(431e-3, 103e-3, 2 * 0.35e-3, 2 * 0.55e-3, 6.43e+10, 2.50e+10, 21.3, 0)
-    #tube2 = Tube(332e-3, 113e-3, 2 * 0.7e-3, 2 * 0.9e-3, 5.25e+10, 2.14e+10, 13.108, 0)
-    #tube3 = Tube(174e-3, 134e-3, 2e-3, 2 * 1.1e-3, 4.71e+10, 2.97e+10, 3.5, 0)
-
     tube1 = Tube(431e-3, 103e-3, 2 * 0.35e-3, 2 * 0.55e-3, 10.25e+10, 18.79e+10, 21.3, 0)
     tube2 = Tube(332e-3, 113e-3, 2 * 0.7e-3, 2 * 0.9e-3, 68.6e+10, 11.53e+10, 13.1, 0)
     tube3 = Tube(174e-3, 134e-3, 2e-3, 2 * 1.1e-3, 16.96e+10, 14.25e+10, 3.5, 0)
@@ -122,32 +115,17 @@ if __name__ == '__main__':
     K_p = 2
     damping_constant = 0
     damping = False
-    if solve_ik:
-        q = np.array([-0.2858, -0.2025, -0.0945, 0, 0, 0])
-        # Initial position of joints
-        q_0 = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
-        del_q = np.array([-0.010, -0.005, 0.0, 0, 0, 0])
-        CTR = CTR_Model(tube1, tube2, tube3, f, q + del_q, q_0, 0.01, 1)
-        J = CTR.jac(np.concatenate((u1_xy_0, uz_0), axis=None))
-        x_d = CTR.r[-1, :]
-        # Single desired goal IK
-        jacobian_ik = JacobianIk(tube1, tube2, tube3, K_p, damping_constant, damping)
-        x_d_array, x_c_array, q_array = jacobian_ik.ik_solver(x_d, q, q_0, uz_0, u1_xy_0)
-        # Plot single IK solutions
-        #plot_traj(x_d_array, x_c_array)
+    q = np.array([-0.2858, -0.2025, -0.0945, 0, 0, 0])
+    # Initial position of joints
+    q_0 = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+    jacobian_ik = JacobianIk(tube1, tube2, tube3, K_p, damping_constant, damping)
+    CTR = CTR_Model(tube1, tube2, tube3, f, q, q_0, 0.01, 1)
+    J = CTR.jac(np.concatenate((u1_xy_0, uz_0), axis=None))
+    x_d = CTR.r[-1, :]
+    v = [0.001, -0.001, 0]
+    path_x, path_y, path_z = velocity_based_line_traj(5, 10, v, x_d[0], x_d[1], x_d[2])
+    path_array = np.vstack((path_x, path_y, path_z)).T
+    x_d_array, x_c_array, q_array = jacobian_ik.path_following(path_array, q, q_0, uz_0, u1_xy_0)
 
-    if solve_path_following:
-        q = np.array([-0.2858, -0.2025, -0.0945, 0, 0, 0])
-        # Initial position of joints
-        q_0 = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
-        jacobian_ik = JacobianIk(tube1, tube2, tube3, K_p, damping_constant, damping)
-        CTR = CTR_Model(tube1, tube2, tube3, f, q, q_0, 0.01, 1)
-        J = CTR.jac(np.concatenate((u1_xy_0, uz_0), axis=None))
-        x_d = CTR.r[-1, :]
-        v = [0.001, -0.001, 0]
-        path_x, path_y, path_z = velocity_based_line_traj(5, 10, v, x_d[0], x_d[1], x_d[2])
-        path_array = np.vstack((path_x, path_y, path_z)).T
-        x_d_array, x_c_array, q_array = jacobian_ik.path_following(path_array, q, q_0, uz_0, u1_xy_0)
-
-        # Plot path following
-        plot_path_only(x_c_array, x_d_array)
+    # Plot path following
+    plot_path_only(x_c_array, x_d_array)
