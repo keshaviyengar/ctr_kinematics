@@ -1,8 +1,8 @@
 import numpy as np
 from copy import deepcopy
 from scipy.integrate import solve_ivp
-from ctr_kinematics.ctr_kinematics.Segment import Segment
-from ctr_kinematics.ctr_kinematics.Tube import Tube
+from ctr_kinematics.Segment import Segment
+from ctr_kinematics.Tube import Tube
 
 import matplotlib.pyplot as plt
 
@@ -10,8 +10,8 @@ import matplotlib.pyplot as plt
 class ThreeTubeCTRKinematics(object):
     def __init__(self, system_parameters):
         # Tube parameters
-        self.system_parameters = [Tube(**system_parameters['tube_2']), Tube(**system_parameters['tube_1']),
-                                  Tube(**system_parameters['tube_0'])]
+        self.system_parameters = [Tube(**system_parameters['inner']), Tube(**system_parameters['middle']),
+                                  Tube(**system_parameters['outer'])]
         # positions and transformation of backbone
         self.r = []
         self.r_transforms = []
@@ -136,7 +136,7 @@ class ThreeTubeCTRKinematics(object):
         e3 = np.array([0, 0, 1]).reshape(3, 1)
         uz = y[0:3]
         R = np.array(y[9:]).reshape(3, 3)
-        u_hat = np.array([(0, - uz[0], uy[0]), (uz[0], 0, -ux[0]), (-uy[0], ux[0], 0)])
+        u_hat = np.array([[0, -uz.flatten()[0], uy.flatten()[0]], [uz.flatten()[0], 0, -ux.flatten()[0]], [-uy.flatten()[0], ux.flatten()[0], 0]])
         dr = np.dot(R, e3)
         dR = np.dot(R, u_hat).ravel()
 
