@@ -95,7 +95,13 @@ class ThreeTubeCTRKinematics(object):
         u_z_end = np.array([0.0, 0.0, 0.0])
         tip_pos = np.array([0, 0, 0])
         for k in range(0, 3):
-            b = np.argmax(Length >= d_tip[k] - 1e-3)  # Find where tube curve starts
+            try:
+                b = np.argmax(Length >= d_tip[k] - 1e-3)  # Find where tube curve starts
+            except ValueError:
+                print('k: ' + str(k))
+                print('beta: ' + str(beta))
+                print('Length: ' + str(Length))
+                print('d_tip: ' + str(d_tip))
             u_z_end[k] = u_z[b, k]
             tip_pos[k] = b
 
