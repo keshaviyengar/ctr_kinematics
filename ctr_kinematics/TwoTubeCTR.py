@@ -1,8 +1,8 @@
 import numpy as np
 from copy import deepcopy
 from scipy.integrate import solve_ivp
-from Segment import Segment
-from Tube import Tube
+from ctr_kinematics.Segment import Segment
+from ctr_kinematics.Tube import Tube
 
 import matplotlib.pyplot as plt
 
@@ -10,7 +10,8 @@ import matplotlib.pyplot as plt
 class TwoTubeCTRKinematics(object):
     def __init__(self, system_parameters):
         # Tube parameters
-        self.system_parameters = deepcopy(system_parameters)
+        self.system_parameters = [Tube(**system_parameters['inner']),
+                                  Tube(**system_parameters['outer'])]
         # positions and transformation of backbone
         self.r = []
         self.r_transforms = []
@@ -23,23 +24,24 @@ class TwoTubeCTRKinematics(object):
         segment = Segment(self.system_parameters[0], self.system_parameters[1], None, beta)
 
         r_0 = np.array([0, 0, 0]).reshape(3, 1)  # initial position of robot
-        alpha_1_0 = q[2]  # initial twist angle for tube 1
+        alpha_1_0 = joints[2]  # initial twist angle for tube 1
         R_0_ = np.array(
             [[np.cos(alpha_1_0), -np.sin(alpha_1_0), 0], [np.sin(alpha_1_0), np.cos(alpha_1_0), 0],
              [0, 0, 1]]) \
             .reshape(9, 1)  # initial rotation matrix
-        alpha_0_ = q[2:].reshape(2, 1) - alpha_1_0  # initial twist angle for
+        alpha_0_ = joints[2:].reshape(2, 1) - alpha_1_0  # initial twist angle for
 
         uz_0_ = np.array([0.0, 0.0]).reshape(2, 1)
         # kinematic_model function
         self.r, U_z, tip = self.kinematic_model(uz_0_, alpha_0_, r_0, R_0_, segment, beta)
         self.r1 = self.r[tip[1]:tip[0] + 1]
-        self.r2 = self.r[tip[2]:tip[1] + 1]
-        self.r3 = self.r[:tip[2] + 1]
+        self.r2 = self.r[:tip[1] + 1]
         assert not np.any(np.isnan(self.r))
         return self.r[-1]
 
     def kinematic_model(self, uz_0, alpha_0, r_0, R_0, segmentation, beta):
+        tube1 = self.system_parameters[0]
+        tube2 = self.system_parameters[1]
         span = np.append([0], segmentation.S)
         Length = np.empty(0)
         r = np.empty((0, 3))
@@ -109,11 +111,19 @@ class TwoTubeCTRKinematics(object):
                 u1_new = K_inv_new @ (K1 @ (u1 - U1) + R_theta2 @ K2 @ (u2 - U2) + K1_new @ U1_new
                                       + R_theta2 @ K2_new @ U2_new - R_theta2 @ K2_new @ (dtheta2 * e3))
                 u1_xy_0 = u1_new[0:2, 0].reshape(2, 1)
-        d_tip = np.array([tube1.L, tube2.L])
+
+        # Code differs starting here.
+        d_tip = np.array([tube1.L, tube2.L]) + beta
         u_z_end = np.array([0.0, 0.0, 0.0])
         tip_pos = np.array([0, 0, 0])
         for k in range(0, 2):
-            b = np.argmax(Length >= d_tip[k] - 1e-3)
+            try:
+                b = np.argmax(Length >= d_tip[k] - 1e-3)
+            except ValueError:
+                print('k: ' + str(k))
+                print('beta: ' + str(beta))
+                print('Length: ' + str(Length))
+                print('d_tip: ' + str(d_tip))
             u_z_end[k] = u_z[b, k]
             tip_pos[k] = b
         return r, u_z_end, tip_pos
@@ -178,10 +188,16 @@ class TwoTubeCTRKinematics(object):
 if __name__ == '__main__':
     # Defining parameters of each tube, numbering starts with the most inner tube
     # length, length_curved, diameter_inner, diameter_outer, stiffness, torsional_stiffness, x_curvature, y_curvature
-    tube1 = Tube(400e-3, 200e-3, 2 * 0.35e-3, 2 * 0.55e-3, 70.0e+9, 10.0e+9, 12, 0)
-    tube2 = Tube(300e-3, 150e-3, 2 * 0.7e-3, 2 * 0.9e-3, 70.0e+9, 10.0e+9, 6, 0)
-    system_parameters = [tube1, tube2, None]
-    ctr_kine = TwoTubeCTRKinematics(system_parameters)
+    ctr_system = {'inner':
+                      {'length': 400e-3, 'length_curved': 200e-3, 'diameter_inner': 2 * 0.35e-3,
+                       'diameter_outer': 2 * 0.55e-3,
+                       'stiffness': 70e+9, 'torsional_stiffness': 10.0e+9, 'x_curvature': 12.0, 'y_curvature': 0},
+                  'outer':
+                      {'length': 300e-3, 'length_curved': 150e-3, 'diameter_inner': 2 * 0.7e-3,
+                       'diameter_outer': 2 * 0.9e-3,
+                       'stiffness': 70e+9, 'torsional_stiffness': 10.0e+9, 'x_curvature': 6.0, 'y_curvature': 0}
+                  }
+    ctr_kine = TwoTubeCTRKinematics(ctr_system)
 
     # Joint variables
     del_q = np.array([0.0, 0.0, 0.0, 0.0])
@@ -192,17 +208,17 @@ if __name__ == '__main__':
     print("computed ee_pos: " + str(ee_pos))
 
     alphas = np.random.uniform(low=-np.pi, high=np.pi, size=2)
-    beta_1 = np.random.uniform(low=-tube1.L, high=0)
-    beta_2 = np.random.uniform(low=beta_1, high=0)
+    beta_1 = np.random.uniform(low=-ctr_system['inner']['length'], high=0)
+    beta_2 = np.random.uniform(low=-beta_1, high=0)
     q = np.array([beta_1, beta_2, alphas[0], alphas[1]])
     ctr_kine.forward_kinematics(q)
 
     fig = plt.figure(figsize=(5, 5), dpi=150)
     ax = plt.axes(projection='3d')
-    ax.plot3D(ctr_kine.r1[:,0] * 1000, ctr_kine.r1[:,1] * 1000, ctr_kine.r1[:,2] * 1000, linewidth=2.0, c='#2596BE')
-    ax.plot3D(ctr_kine.r2[:,0] * 1000, ctr_kine.r2[:,1] * 1000, ctr_kine.r2[:,2] * 1000, linewidth=3.0, c='#D62728')
+    ax.plot3D(ctr_kine.r1[:, 0] * 1000, ctr_kine.r1[:, 1] * 1000, ctr_kine.r1[:, 2] * 1000, linewidth=2.0, c='#2596BE')
+    ax.plot3D(ctr_kine.r2[:, 0] * 1000, ctr_kine.r2[:, 1] * 1000, ctr_kine.r2[:, 2] * 1000, linewidth=3.0, c='#D62728')
     ax.set_xlabel("X (mm)")
     ax.set_ylabel("Y (mm)")
     ax.set_zlabel("Z (mm)")
-    ax.set_box_aspect([1,1,1])
+    ax.set_box_aspect([1, 1, 1])
     plt.show()

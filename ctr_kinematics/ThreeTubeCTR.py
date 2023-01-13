@@ -157,6 +157,19 @@ class ThreeTubeCTRKinematics(object):
 
 if __name__ == '__main__':
     # Defining parameters of each tube, numbering starts with the most inner tube
+    ctr_system = {'inner':
+                      {'length': 210.0e-3, 'length_curved': 31e-3, 'diameter_inner': 0.4e-3, 'diameter_outer': 0.5e-3,
+                       'stiffness': 50e+10, 'torsional_stiffness': 50.0e+10 / (2 * (1 + 0.3)),
+                       'x_curvature': 28.0, 'y_curvature': 0},
+                  # 'middle':
+                  #    {'length': 165.0e-3, 'length_curved': 100e-3, 'diameter_inner': 0.7e-3, 'diameter_outer': 0.9e-3,
+                  #     'stiffness': 50e+10, 'torsional_stiffness': 50.0e+10 / (2 * (1 + 0.3)),
+                  #     'x_curvature': 12.4, 'y_curvature': 0},
+                  'outer':
+                      {'length': 110.0e-3, 'length_curved': 100e-3, 'diameter_inner': 1.2e-3, 'diameter_outer': 1.5e-3,
+                       'stiffness': 50e+10, 'torsional_stiffness': 50.0e+10 / (2 * (1 + 0.3)),
+                       'x_curvature': 4.37, 'y_curvature': 0}
+                  }
     # length, length_curved, diameter_inner, diameter_outer, stiffness, torsional_stiffness,x_curvature, y_curvature
     tube1 = Tube(431e-3, 103e-3, 2 * 0.35e-3, 2 * 0.55e-3, 6.4359738368e+10, 2.5091302912e+10, 21.3, 0)
     tube2 = Tube(332e-3, 113e-3, 2 * 0.7e-3, 2 * 0.9e-3, 5.2548578304e+10, 2.1467424256e+10, 13.108, 0)
