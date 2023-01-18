@@ -29,7 +29,7 @@ class TwoTubeCTRKinematics(object):
             [[np.cos(alpha_1_0), -np.sin(alpha_1_0), 0], [np.sin(alpha_1_0), np.cos(alpha_1_0), 0],
              [0, 0, 1]]) \
             .reshape(9, 1)  # initial rotation matrix
-        alpha_0_ = joints[2:].reshape(2, 1) - alpha_1_0  # initial twist angle for
+        alpha_0_ = joints[2:].reshape(2, 1)
 
         uz_0_ = np.array([0.0, 0.0]).reshape(2, 1)
         # kinematic_model function
@@ -39,6 +39,167 @@ class TwoTubeCTRKinematics(object):
         assert not np.any(np.isnan(self.r))
         return self.r[-1]
 
+    def kinematic_model(self, uz_0, alpha_0, r_0, R_0, segmentation, beta):
+        """
+        :param uz_0: Initial twist of backbone
+        :param alpha_0: Initial angle of tubes
+        :param r_0: Initial position of backbone
+        :param R_0: Initial rotation matrix
+        :param segmentation: Transition points where shape and internal moments continuity is enforced
+        :param beta: Extension values for each tube.
+        :return: r, u_z_end, tip_pos: Complete shape, twist at the tip and end-effector tip position.
+        """
+        tube1 = self.system_parameters[0]
+        tube2 = self.system_parameters[1]
+        Length = np.empty(0)
+        r = np.empty((0, 3))
+        u_z = np.empty((0, 2))
+        alpha = np.empty((0, 2))
+        span = np.append([0], segmentation.S)
+        for seg in range(0, len(segmentation.S)):
+            # Initial conditions, 2 initial twist + 2 initial angle + 3 initial position + 9 initial rotation matrix
+            y_0 = np.vstack((uz_0.reshape(2, 1), alpha_0, r_0, R_0)).ravel()
+            s_span = np.linspace(span[seg], span[seg + 1] - 1e-6, num=30)
+            #s = odeint(self.ode_eq, y_0, s_span, args=(
+            #    segmentation.U_x[:, seg], segmentation.U_y[:, seg], segmentation.EI[:, seg], segmentation.GJ[:, seg]),
+            #           tfirst=True)
+            if np.all(np.diff(s_span) < 0):
+                print("s_span not sorted correctly. Resorting...")
+                print("linespace: ", s_span[seg], s_span[seg+1] - 1e-6)
+                s_span = np.sort(s_span)
+            sol = solve_ivp(fun=lambda s, y: self.ode_eq(s, y, segmentation.U_x[:, seg], segmentation.U_y[:, seg],
+                                                         segmentation.EI[:, seg], segmentation.GJ[:, seg]),
+                            t_span=(min(s_span), max(s_span)), y0=y_0, t_eval=s_span)
+            if sol.status == -1:
+                print(sol.message)
+            s = np.transpose(sol.y)
+            Length = np.append(Length, s_span)
+            u_z = np.vstack((u_z, s[:, (0, 1)]))
+            alpha = np.vstack((alpha, s[:, (2, 3)]))
+            r = np.vstack((r, s[:, (4, 5, 6)]))
+
+            # new boundary conditions for next segment
+            r_0 = r[-1, :].reshape(3, 1)
+            R_0 = np.array(s[-1, 7:]).reshape(9, 1)
+            uz_0 = u_z[-1, :].reshape(2, 1)
+            alpha_0 = alpha[-1, :].reshape(2, 1)
+
+        d_tip = np.array([tube1.L, tube2.L]) + beta
+        u_z_end = np.array([0.0, 0.0])
+        tip_pos = np.array([0, 0])
+        for k in range(0, 2):
+            try:
+                b = np.argmax(Length >= d_tip[k] - 1e-3)  # Find where tube curve starts
+            except ValueError:
+                # The tube is fully retracted
+                return np.array([0,0,0]), np.array([0,0]), np.array([0,0])
+            u_z_end[k] = u_z[b, k]
+            tip_pos[k] = b
+
+        return r, u_z_end, tip_pos
+
+    def ode_eq(self, s, y, ux_0, uy_0, ei, gj):
+        """
+        Definition of ODE equation to solve overall backbone shape of CTR.
+        :param s: Arc-length distance along backbone.
+        :param y: y is 2 initial twist + 2 initial angle + 3 initial position + 9 initial rotation matrix
+        :param ux_0: Initial curvature in x for segment.
+        :param uy_0: Initial curvature in y for segment.
+        :param ei: Youngs modulus times second moment of inertia
+        :param gj: Shear modulus times polar moment of inertia
+        :return: dydt set of differential equations
+        """
+        dydt = np.empty([16, 1])
+        ux = np.empty([2, 1])
+        uy = np.empty([2, 1])
+        for i in range(0, 2):
+            ux[i] = (1 / (ei[0] + ei[1])) * \
+                    (ei[0] * ux_0[0] * np.cos(y[2 + i] - y[2 + 0]) + ei[0] * uy_0[0] * np.sin(y[2 + i] - y[2 + 0]) +
+                     ei[1] * ux_0[1] * np.cos(y[2 + i] - y[2 + 1]) + ei[1] * uy_0[1] * np.sin(y[2 + i] - y[2 + 1]))
+            uy[i] = (1 / (ei[0] + ei[1])) * \
+                    (-ei[0] * ux_0[0] * np.sin(y[2 + i] - y[2 + 0]) + ei[0] * uy_0[0] * np.cos(y[2 + i] - y[2 + 0]) +
+                     -ei[1] * ux_0[1] * np.sin(y[2 + i] - y[2 + 1]) + ei[1] * uy_0[1] * np.cos(y[2 + i] - y[2 + 1]))
+
+        for j in range(0, 2):
+            if ei[j] == 0:
+                dydt[j] = 0  # ui_z
+                dydt[2 + j] = 0  # alpha_i
+            else:
+                dydt[j] = ((ei[j]) / (gj[j])) * (ux[j] * uy_0[j] - uy[j] * ux_0[j])  # ui_z
+                dydt[2 + j] = y[j]  # alpha_i
+
+        e3 = np.array([0, 0, 1]).reshape(3, 1)
+        uz = y[0:2]
+        R = np.array(y[7:]).reshape(3, 3)
+        u_hat = np.array([[0, -uz.flatten()[0], uy.flatten()[0]], [uz.flatten()[0], 0, -ux.flatten()[0]], [-uy.flatten()[0], ux.flatten()[0], 0]])
+        dr = np.dot(R, e3)
+        dR = np.dot(R, u_hat).ravel()
+
+        dydt[4] = dr[0]
+        dydt[5] = dr[1]
+        dydt[6] = dr[2]
+
+        for k in range(3, 12):
+            dydt[4 + k] = dR[k - 3]
+        return dydt.ravel()
+"""
+    def ode_eq(self, s, y, ux_0, uy_0, ei, gj):
+        # 1st element of y is curvature along x for first tube,
+        # 2nd element of y is curvature along y for second tube
+        # next 2 elements of y are curvatures along z, e.g., y= [ u1_z  u2_z]
+        # next 2 elements of y are twist angles, alpha_i
+        # last 12 elements are r (position) and R (orientations), respectively
+        dydt = np.empty([18, 1])
+        tet1 = y[4]
+        tet2 = y[5]
+        R_tet1 = np.array([[np.cos(tet1), -np.sin(tet1), 0], [np.sin(tet1), np.cos(tet1), 0],
+                           [0, 0, 1]])
+        R_tet2 = np.array([[np.cos(tet2), -np.sin(tet2), 0], [np.sin(tet2), np.cos(tet2), 0],
+                           [0, 0, 1]])
+        u2 = R_tet2.transpose() @ np.array([[y[0]], [y[1]], [y[2]]]) + dydt[
+            4] * np.array([[0], [0], [1]])  # Vector of curvature of tube 2
+        u = np.array([y[0], y[1], y[2], u2[0, 0], u2[1, 0], y[3]])
+        u1 = np.array([y[0], y[1], y[2]]).reshape(3, 1)
+
+        # estimating twist curvature and twist angles
+        for i in np.argwhere(gj != 0):
+            dydt[2 + i] = ((ei[i]) / (gj[i])) * (u[i * 3] * uy_0[i] - u[i * 3 + 1] * ux_0[i])  # ui_z
+            dydt[4 + i] = y[2 + i] - y[2]  # alpha_i
+
+        # estimating curvature of first tube along x and y
+        K_inv = np.diag(np.array([1 / np.sum(ei), 1 / np.sum(ei), 1 / np.sum(gj)]))
+        K1 = np.diag(np.array([ei[0], ei[0], gj[0]]))
+        K2 = np.diag(np.array([ei[1], ei[1], gj[1]]))
+        dR_tet1 = np.array([[-np.sin(tet1), -np.cos(tet1), 0], [np.cos(tet1), -np.sin(tet1), 0],
+                            [0, 0, 1]])
+        dR_tet2 = np.array([[-np.sin(tet2), -np.cos(tet2), 0], [np.cos(tet2), -np.sin(tet2), 0],
+                            [0, 0, 1]])
+        u_hat1 = np.array([[0, -u1[2], u1[1]], [u1[2], 0, -u1[0]], [-u1[1], u1[0], 0]], dtype=np.float64)
+        u_hat2 = np.array([[0, -u2[2], u2[1]], [u2[2], 0, -u2[0]], [-u2[1], u2[0], 0]], dtype=np.float64)
+        u_s1 = np.array([ux_0[0], uy_0[0], 0]).reshape(3, 1)
+        u_s2 = np.array([ux_0[1], uy_0[1], 0]).reshape(3, 1)
+        du = np.zeros((3, 1), dtype=np.float64)
+        du = -K_inv @ (R_tet1 @ (K1 @ (dydt[4] * dR_tet1.transpose() @ u1) + u_hat1 @ K1 @ (u1 - u_s1)) + R_tet2 @ (
+                K2 @ (dydt[5] * dR_tet2.transpose() @ u2) + u_hat2 @ K2 @ (u2 - u_s2)))
+        dydt[0] = du[0, 0]
+        dydt[1] = du[1, 0]
+        R = np.array(
+            [[y[9], y[10], y[11]], [y[12], y[13], y[14]], [y[15], y[16], y[17]]])  # rotation matrix of 1st tube
+
+        # estimating R and r
+        e3 = np.array([[0.0], [0.0], [1.0]])
+        dr = R @ e3
+        dR = (R @ u_hat1).ravel()
+
+        dydt[6] = dr[0, 0]
+        dydt[7] = dr[1, 0]
+        dydt[8] = dr[2, 0]
+
+        for k in range(3, 12):
+            dydt[6 + k] = dR[k - 3]
+        return dydt.ravel()
+        
+        
     def kinematic_model(self, uz_0, alpha_0, r_0, R_0, segmentation, beta):
         tube1 = self.system_parameters[0]
         tube2 = self.system_parameters[1]
@@ -118,69 +279,14 @@ class TwoTubeCTRKinematics(object):
         tip_pos = np.array([0, 0, 0])
         for k in range(0, 2):
             try:
-                b = np.argmax(Length >= d_tip[k] - 1e-3)
+                b = np.argmax(Length >= d_tip[k] - 1e-5)
             except ValueError:
                 # The tube is fully retracted
                 return np.array([0, 0, 0]), np.array([0, 0, 0]), np.array([0, 0, 0])
             u_z_end[k] = u_z[b, k]
             tip_pos[k] = b
         return r, u_z_end, tip_pos
-
-    def ode_eq(self, s, y, ux_0, uy_0, ei, gj):
-        # 1st element of y is curvature along x for first tube,
-        # 2nd element of y is curvature along y for first tube
-        # next 2 elements of y are curvatures along z, e.g., y= [ u1_z  u2_z]
-        # next 2 elements of y are twist angles, alpha_i
-        # last 12 elements are r (position) and R (orientations), respectively
-        dydt = np.empty([18, 1])
-        tet1 = y[4]
-        tet2 = y[5]
-        R_tet1 = np.array([[np.cos(tet1), -np.sin(tet1), 0], [np.sin(tet1), np.cos(tet1), 0],
-                           [0, 0, 1]])
-        R_tet2 = np.array([[np.cos(tet2), -np.sin(tet2), 0], [np.sin(tet2), np.cos(tet2), 0],
-                           [0, 0, 1]])
-        u2 = R_tet2.transpose() @ np.array([[y[0]], [y[1]], [y[2]]]) + dydt[
-            4] * np.array([[0], [0], [1]])  # Vector of curvature of tube 2
-        u = np.array([y[0], y[1], y[2], u2[0, 0], u2[1, 0], y[3]])
-        u1 = np.array([y[0], y[1], y[2]]).reshape(3, 1)
-
-        # estimating twist curvature and twist angles
-        for i in np.argwhere(gj != 0):
-            dydt[2 + i] = ((ei[i]) / (gj[i])) * (u[i * 3] * uy_0[i] - u[i * 3 + 1] * ux_0[i])  # ui_z
-            dydt[4 + i] = y[2 + i] - y[2]  # alpha_i
-
-        # estimating curvature of first tube along x and y
-        K_inv = np.diag(np.array([1 / np.sum(ei), 1 / np.sum(ei), 1 / np.sum(gj)]))
-        K1 = np.diag(np.array([ei[0], ei[0], gj[0]]))
-        K2 = np.diag(np.array([ei[1], ei[1], gj[1]]))
-        dR_tet1 = np.array([[-np.sin(tet1), -np.cos(tet1), 0], [np.cos(tet1), -np.sin(tet1), 0],
-                            [0, 0, 1]])
-        dR_tet2 = np.array([[-np.sin(tet2), -np.cos(tet2), 0], [np.cos(tet2), -np.sin(tet2), 0],
-                            [0, 0, 1]])
-        u_hat1 = np.array([[0, -u1[2], u1[1]], [u1[2], 0, -u1[0]], [-u1[1], u1[0], 0]], dtype=np.float64)
-        u_hat2 = np.array([[0, -u2[2], u2[1]], [u2[2], 0, -u2[0]], [-u2[1], u2[0], 0]], dtype=np.float64)
-        u_s1 = np.array([ux_0[0], uy_0[0], 0]).reshape(3, 1)
-        u_s2 = np.array([ux_0[1], uy_0[1], 0]).reshape(3, 1)
-        du = np.zeros((3, 1), dtype=np.float64)
-        du = -K_inv @ (R_tet1 @ (K1 @ (dydt[4] * dR_tet1.transpose() @ u1) + u_hat1 @ K1 @ (u1 - u_s1)) + R_tet2 @ (
-                K2 @ (dydt[5] * dR_tet2.transpose() @ u2) + u_hat2 @ K2 @ (u2 - u_s2)))
-        dydt[0] = du[0, 0]
-        dydt[1] = du[1, 0]
-        R = np.array(
-            [[y[9], y[10], y[11]], [y[12], y[13], y[14]], [y[15], y[16], y[17]]])  # rotation matrix of 1st tube
-
-        # estimating R and r
-        e3 = np.array([[0.0], [0.0], [1.0]])
-        dr = R @ e3
-        dR = (R @ u_hat1).ravel()
-
-        dydt[6] = dr[0, 0]
-        dydt[7] = dr[1, 0]
-        dydt[8] = dr[2, 0]
-
-        for k in range(3, 12):
-            dydt[6 + k] = dR[k - 3]
-        return dydt.ravel()
+"""
 
 
 if __name__ == '__main__':
@@ -205,18 +311,18 @@ if __name__ == '__main__':
     ee_pos = ctr_kine.forward_kinematics(q)
     print("computed ee_pos: " + str(ee_pos))
 
-    alphas = np.random.uniform(low=-np.pi, high=np.pi, size=2)
-    beta_1 = np.random.uniform(low=-ctr_system['inner']['length'], high=0)
-    beta_2 = np.random.uniform(low=-beta_1, high=0)
-    q = np.array([beta_1, beta_2, alphas[0], alphas[1]])
-    ctr_kine.forward_kinematics(q)
-
     fig = plt.figure(figsize=(5, 5), dpi=150)
-    ax = plt.axes(projection='3d')
-    ax.plot3D(ctr_kine.r1[:, 0] * 1000, ctr_kine.r1[:, 1] * 1000, ctr_kine.r1[:, 2] * 1000, linewidth=2.0, c='#2596BE')
-    ax.plot3D(ctr_kine.r2[:, 0] * 1000, ctr_kine.r2[:, 1] * 1000, ctr_kine.r2[:, 2] * 1000, linewidth=3.0, c='#D62728')
-    ax.set_xlabel("X (mm)")
-    ax.set_ylabel("Y (mm)")
-    ax.set_zlabel("Z (mm)")
-    ax.set_box_aspect([1, 1, 1])
-    plt.show()
+    for _ in range(10):
+        alphas = np.random.uniform(low=-np.pi, high=np.pi, size=2)
+        beta_1 = np.random.uniform(low=-ctr_system['inner']['length'], high=0)
+        beta_2 = np.random.uniform(low=-beta_1, high=0)
+        q = np.array([beta_1, beta_2, alphas[0], alphas[1]])
+        ctr_kine.forward_kinematics(q)
+        ax = plt.axes(projection='3d')
+        ax.plot3D(ctr_kine.r1[:, 0] * 1000, ctr_kine.r1[:, 1] * 1000, ctr_kine.r1[:, 2] * 1000, linewidth=2.0, c='#2596BE')
+        ax.plot3D(ctr_kine.r2[:, 0] * 1000, ctr_kine.r2[:, 1] * 1000, ctr_kine.r2[:, 2] * 1000, linewidth=3.0, c='#D62728')
+        ax.set_xlabel("X (mm)")
+        ax.set_ylabel("Y (mm)")
+        ax.set_zlabel("Z (mm)")
+        ax.set_box_aspect([1, 1, 1])
+        plt.show()
