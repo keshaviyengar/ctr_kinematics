@@ -92,7 +92,7 @@ class TwoTubeCTRKinematics(object):
                 b = np.argmax(Length >= d_tip[k] - 1e-3)  # Find where tube curve starts
             except ValueError:
                 # The tube is fully retracted
-                return np.array([0,0,0]), np.array([0,0]), np.array([0,0])
+                return np.array([[0,0,0]]), np.array([0,0]), np.array([0,0])
             u_z_end[k] = u_z[b, k]
             tip_pos[k] = b
 
