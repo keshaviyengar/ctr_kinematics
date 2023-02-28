@@ -3,6 +3,7 @@ from copy import deepcopy
 from scipy.integrate import solve_ivp
 from ctr_kinematics.Segment import Segment
 from ctr_kinematics.Tube import Tube
+from ctr_kinematics.model_utils import *
 
 import matplotlib.pyplot as plt
 
@@ -12,6 +13,7 @@ class ThreeTubeCTRKinematics(object):
         # Tube parameters
         self.system_parameters = [Tube(**system_parameters['inner']), Tube(**system_parameters['middle']),
                                   Tube(**system_parameters['outer'])]
+        self.current_sys_parameters = deepcopy(self.system_parameters)
         # positions and transformation of backbone
         self.r = []
         self.r_transforms = []
@@ -19,6 +21,11 @@ class ThreeTubeCTRKinematics(object):
         self.r1 = []
         self.r2 = []
         self.r3 = []
+
+    def randomize_parameters(self, randomization):
+        self.current_sys_parameters[0] = sample_parameters(self.system_parameters[0], randomization)
+        self.current_sys_parameters[1] = sample_parameters(self.system_parameters[1], randomization)
+        self.current_sys_parameters[2] = sample_parameters(self.system_parameters[2], randomization)
 
     def forward_kinematics(self, joints):
         """
